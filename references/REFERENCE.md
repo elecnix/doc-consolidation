@@ -26,7 +26,7 @@ also get `verify-currency`.
 | verify-consistency | Verify the paragraph agrees with the script | Names, defaults, mechanics against the script source |
 | verify-currency | Verify the paragraph is current | Dates, operator rulings, superseded references |
 
-**Verdicts** (one per task): `keep` / `trim-to-pointer` / `delete` / `move-to-tool`.
+**Verdicts** (one per task): `keep` / `trim-to-pointer` / `delete` / `progressive-disclosure`.
 Move-to-tool proposals accumulate in a `proposals/` dir for a separate tool subagent
 (the tool change involves unit tests, which is why it is delegated).
 
@@ -60,9 +60,9 @@ script path, the investigation recipe, the verdict options, and the exact output
 > `--help`/note output to a one-line pointer; keep every decision rule, failure-mode
 > illustration, and `never`/`always` rule even if partially discoverable. BUT for each kept
 > rule that is ABOUT a tool script's behavior, check whether the script ALREADY states it —
-> if not, write a **move-to-tool** proposal (rule, target script + location, proposed
+> if not, write a **progressive-disclosure** proposal (rule, target script + location, proposed
 > wording, why the tool is the right home); do NOT edit the tool script. Bias toward
-> proposing move-to-tool for rules that govern a script's behavior but live only in prose.
+> proposing progressive-disclosure for rules that govern a script's behavior but live only in prose.
 > Your worktree is `<wt path>` — edit ONLY that doc. When done, report your verdicts,
 > one-line reasons each, and the diff path. Every verdict line MUST cite the specific
 > `script:line` you verified each claim against (e.g. `run-pr-gates.sh:388-389`) — the
@@ -138,7 +138,7 @@ tick: `done X/N | tasks Y/M (+Z/2m) | frontier F`. The `+Z/2m` is the throughput
 ```
 subagent writes:  diffs/N%04d.diff (git diff --no-prefix, empty = keep)
                   verdicts/N%04d.md (one line per task: "T0001 verify-accuracy: keep — reason")
-                  proposals/N%04d.md (only if move-to-tool)
+                  proposals/N%04d.md (only if progressive-disclosure)
 
 orchestrator:     python3 apply-node.py <id>
                   → git apply --3way (handles context drift; patch -p0 without a repo)

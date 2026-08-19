@@ -216,9 +216,9 @@ class Ctx:
                             help="commit trailer name (default: git config user.name of the doc repo)")
         parser.add_argument("--wt-root", default=os.path.expanduser("~/Source/doc-split-wt"),
                             help="root for per-node subagent worktrees (default: ~/Source/doc-split-wt)")
-        parser.add_argument("--modules", default="trim,move-to-tool",
-                            help="comma-separated prompt modules to apply (default: trim,move-to-tool = all; "
-                                 "choices: trim, move-to-tool). A move-to-tool-only run surfaces embeddable "
+        parser.add_argument("--modules", default="trim,progressive-disclosure",
+                            help="comma-separated prompt modules to apply (default: trim,progressive-disclosure = all; "
+                                 "choices: trim, progressive-disclosure). A progressive-disclosure-only run surfaces embeddable "
                                  "rules on a doc already trimmed in an earlier pass.")
         return parser
 

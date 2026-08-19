@@ -86,16 +86,16 @@ Each of steps 1-4 is covered in detail in [the reference](references/REFERENCE.m
 ## Prompt modules
 
 The prompt is assembled from composable modules, selected with `--modules` on
-`split-skill-dag.py` and `drive-nodes.py` (default `trim,move-to-tool` = all):
+`split-skill-dag.py` and `drive-nodes.py` (default `trim,progressive-disclosure` = all):
 
 - **trim** — trim text verbatim-restated in a tool's header/`--help`/code-comment to a
   one-line pointer; keep decision rules even if partially discoverable.
-- **move-to-tool** — for each kept rule about a script's behavior, check whether the
-  script already states it; if not, write a move-to-tool proposal (rule, target script +
+- **progressive-disclosure** — for each kept rule about a script's behavior, check whether the
+  script already states it; if not, write a progressive-disclosure proposal (rule, target script +
   location, proposed wording, why the tool is the right home) without editing the script.
 
 A run with **all modules** (the default) does both in one pass. A run with **only
-`--modules move-to-tool`** skips trimming and only surfaces embeddable rules — useful on
+`--modules progressive-disclosure`** skips trimming and only surfaces embeddable rules — useful on
 a doc already trimmed in an earlier pass. The base checks (accuracy, consistency,
 currency, `script:line` citations, keep-if-cross-script-orchestration) always apply.
 
@@ -105,7 +105,7 @@ back without a flag; pass `--modules` to `drive-nodes.py` to override for one ru
 The proposals accumulate in `proposals/`. A separate tool-change PR implements them
 (edits the tool scripts to embed the rules) and trims the doc to pointers — that is
 a code change with its own gates, not a docs-only fast-path. On the PRI-2201 run the
-move-to-tool module surfaced 23 proposals across 11 nodes where a trim-only prompt had
+progressive-disclosure module surfaced 23 proposals across 11 nodes where a trim-only prompt had
 surfaced 0.
 
 ## Deliverables
@@ -115,7 +115,7 @@ When the DAG is fully drained you get:
 - A **much smaller doc** (worked example cut 38% of words) whose remaining paragraphs were
   each verified accurate and non-redundant.
 - A **sqlite tracking DB** linking every node's task to the commit that resolved it.
-- A **`proposals/` directory** of `move-to-tool` rules that belong in the tool, for a
+- A **`proposals/` directory** of `progressive-disclosure` rules that belong in the tool, for a
   separate tool subagent to implement.
 - The decision-guidance core — "what you need before any tool runs" — kept intact.
 
@@ -126,6 +126,6 @@ See [the worked example](references/WORKED-EXAMPLE.md) for the orchestrate-pi-ag
 | Path | Role |
 |------|------|
 | `SKILL.md` | This overview. |
-| `scripts/` | The pipeline: split, worktrees, drive, apply, status + `common.py` (shared path/tool/co-author derivation) + `prompt_modules.py` (composable trim / move-to-tool prompt modules). |
+| `scripts/` | The pipeline: split, worktrees, drive, apply, status + `common.py` (shared path/tool/co-author derivation) + `prompt_modules.py` (composable trim / progressive-disclosure prompt modules). |
 | `references/REFERENCE.md` | Full method: DAG, task catalog, subagent definition, wave model, apply flow, DB schema. |
 | `references/WORKED-EXAMPLE.md` | The orchestrate-pi-agents run with real numbers. |

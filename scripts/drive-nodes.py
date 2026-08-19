@@ -72,7 +72,7 @@ def main():
 
     # Modules: an explicit --modules (not the default) overrides; otherwise read what
     # split recorded in DB meta so a drive run matches the split's module selection.
-    default_mods = "trim,move-to-tool"
+    default_mods = "trim,progressive-disclosure"
     if args.modules != default_mods:
         ctx.modules = normalize_modules(args.modules)
     else:

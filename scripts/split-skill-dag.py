@@ -60,7 +60,7 @@ def make_catalog(tool_name):
                 "and run `{cmd} --help` (or read the script's header comment) where the "
                 "paragraph names a command. Fix drift by editing the paragraph; if the "
                 "paragraph describes behavior that no longer exists, propose deletion. Do "
-                "not edit {disp} script — if the tool itself is wrong, write a move-to-tool "
+                "not edit {disp} script — if the tool itself is wrong, write a progressive-disclosure "
                 "proposal instead."
             ).format(disp=disp, cmd=cmd),
         },
@@ -76,7 +76,7 @@ def make_catalog(tool_name):
                 "to report, what to delegate, and the failure modes of the process itself. "
                 "How to check: run the command the paragraph describes and compare what it "
                 "prints with what the paragraph says. Verdict options: keep / trim-to-pointer "
-                "/ delete / move-to-tool (write a proposal; do not edit {disp} script)."
+                "/ delete / progressive-disclosure (write a proposal; do not edit {disp} script)."
             ).format(disp=disp, cmd=cmd),
         },
         "verify-discoverability": {
@@ -87,7 +87,7 @@ def make_catalog(tool_name):
                 "--dry-run) and confirm the paragraph adds information beyond what the tool "
                 "prints. Anything the tool already says should be removed from the paragraph "
                 "(trim-to-pointer). If the tool does NOT say it, ask whether the rule is ABOUT "
-                "that script's behavior: if yes, it is a move-to-tool proposal — the rule "
+                "that script's behavior: if yes, it is a progressive-disclosure proposal — the rule "
                 "belongs embedded in the script's header/--help/code-comments so the script "
                 "self-describes it (write a proposal; do not edit {disp} script yourself). If "
                 "the rule is genuine cross-script orchestration no single script can "
@@ -104,7 +104,7 @@ def make_catalog(tool_name):
                 "script must agree. How to check: grep the tool script for each name the "
                 "paragraph uses; run the tool's self-check where one exists. Fix any drift in "
                 "the paragraph. Do not edit the tool script — if the script is wrong, write "
-                "a move-to-tool proposal."
+                "a progressive-disclosure proposal."
             ),
         },
         "verify-currency": {
@@ -494,7 +494,7 @@ Heading path: {path_str}
    Every verdict MUST cite the specific script filename and line numbers you checked
    (e.g. `run-pr-gates.sh:388-389` or `open-pr.sh:7-10,72-74`). A citation is what makes
    the verdict auditable and is what the orchestrator writes into the commit body.
-4. If any verdict is move-to-tool, write a proposal to:
+4. If any verdict is progressive-disclosure, write a proposal to:
    {os.path.join(ctx.proposals_dir, 'N%04d.md' % n['id'])} — one paragraph per rule: what
    rule, which verb/note should carry it, and why the tool is the right home.
 5. Report back: your verdicts, a one-line reason each, and the diff path.
