@@ -56,15 +56,20 @@ script path, the investigation recipe, the verdict options, and the exact output
 
 > Read the brief at `<brief path>` and execute it exactly. The brief gives you the
 > paragraph, the task list, the verdict options, and the output contract. Apply the brief's
-> **strict trimming policy**: only trim text VERBATIM restated in the tool's header, a code
-> comment, or `--help`/note output; keep every decision rule, failure-mode illustration, and
-> `never`/`always` rule even if partially discoverable. Your worktree is `<wt path>` — edit
-> ONLY that doc. When done, report your verdicts, one-line reasons each, and the diff path.
-> Every verdict line MUST cite the specific `script:line` you verified each claim against
-> (e.g. `run-pr-gates.sh:388-389`) — the orchestrator writes those lines into the commit
-> body, and a citation is what makes the trim auditable. IMPORTANT: do not read the whole
-> tool script. Run `<tool> help <verb>` for the verbs the paragraph names, compare, write
-> your verdicts, and finish. Aim to complete in under 3 minutes.
+> **trimming policy**: trim text VERBATIM restated in the tool's header, a code comment, or
+> `--help`/note output to a one-line pointer; keep every decision rule, failure-mode
+> illustration, and `never`/`always` rule even if partially discoverable. BUT for each kept
+> rule that is ABOUT a tool script's behavior, check whether the script ALREADY states it —
+> if not, write a **move-to-tool** proposal (rule, target script + location, proposed
+> wording, why the tool is the right home); do NOT edit the tool script. Bias toward
+> proposing move-to-tool for rules that govern a script's behavior but live only in prose.
+> Your worktree is `<wt path>` — edit ONLY that doc. When done, report your verdicts,
+> one-line reasons each, and the diff path. Every verdict line MUST cite the specific
+> `script:line` you verified each claim against (e.g. `run-pr-gates.sh:388-389`) — the
+> orchestrator writes those lines into the commit body, and a citation is what makes the
+> trim auditable. IMPORTANT: do not read the whole tool script. Run `<tool> --help` for
+> the commands the paragraph names, compare, write your verdicts, and finish. Aim to
+> complete in under 3 minutes.
 
 The efficiency constraint ("don't read the whole script, finish in 3 min") is critical —
 without it, the first node spent 7 minutes re-reading the 920KB script in a loop. With it,

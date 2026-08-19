@@ -83,27 +83,24 @@ python3 scripts/status.py
 
 Each of steps 1-4 is covered in detail in [the reference](references/REFERENCE.md).
 
-## Move-to-tool second pass
+## Move-to-tool is part of the base prompt
 
-The default strict-trim pass often produces **zero** `move-to-tool` proposals:
-subagents default to keep/trim and don't actively hunt for rules that *could* be
-embedded in a tool but aren't yet. A second pass with `--move-to-tool` biases them
-toward it: for each decision rule / failure-mode / `never`-`always` rule about a
-script's behavior, the subagent asks whether the script already states it, and if
-not, writes a `move-to-tool` proposal (rule, target script + location, proposed
-wording, why the tool is the right home) — without editing the script.
-
-```bash
-# After the strict-trim DAG is drained, re-split the trimmed doc and run a
-# move-to-tool pass on the nodes that reference the tool:
-python3 scripts/split-skill-dag.py --skill PATH/TO/TRIMMED.md --force
-python3 scripts/drive-nodes.py --next 5 --move-to-tool
-```
+The default prompt does **two things in one pass**: trim text that is verbatim
+restated in a tool's header/`--help`/code-comment to a one-line pointer, **and**
+for each kept decision rule / failure-mode / `never`-`always` rule that is about a
+tool script's behavior, check whether the script already states it — if not, write
+a `move-to-tool` proposal (rule, target script + location, proposed wording, why
+the tool is the right home) without editing the script. A rule that governs a
+script's behavior but lives only in the doc is exactly the move-to-tool case; the
+subagent does not default to keep-and-stop. This is one pass, not two — the
+move-to-tool judgment is made in the same read of the script that decides
+trim-vs-keep.
 
 The proposals accumulate in `proposals/`. A separate tool-change PR implements them
 (edits the tool scripts to embed the rules) and trims the doc to pointers — that is
-a code change with its own gates, not a docs-only fast-path. On the PRI-2201 run this
-pass surfaced 23 proposals across 11 nodes where the strict-trim pass had surfaced 0.
+a code change with its own gates, not a docs-only fast-path. On the PRI-2201 run
+this prompt surfaced 23 proposals across 11 nodes where a trim-only prompt had
+surfaced 0.
 
 ## Deliverables
 

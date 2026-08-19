@@ -84,12 +84,15 @@ def make_catalog(tool_name):
                 "For every `{cmd} <subcommand>` invocation or tool behavior this paragraph "
                 "describes, run `{cmd} --help` (and the subcommand itself where safe, e.g. "
                 "--dry-run) and confirm the paragraph adds information beyond what the tool "
-                "prints. Anything the tool already says should be removed from the paragraph. "
-                "If the tool does NOT say it, the paragraph may stay — or the rule should be "
-                "embedded in the tool (write a move-to-tool proposal; do not edit {disp} "
-                "script yourself). The test: would the orchestrator find this out by normal "
-                "usage of the tool? If yes, the paragraph is discoverable and should shrink "
-                "to a pointer."
+                "prints. Anything the tool already says should be removed from the paragraph "
+                "(trim-to-pointer). If the tool does NOT say it, ask whether the rule is ABOUT "
+                "that script's behavior: if yes, it is a move-to-tool proposal — the rule "
+                "belongs embedded in the script's header/--help/code-comments so the script "
+                "self-describes it (write a proposal; do not edit {disp} script yourself). If "
+                "the rule is genuine cross-script orchestration no single script can "
+                "self-describe, keep it. The test: would the orchestrator find this out by "
+                "normal usage of the tool? If yes, the paragraph is discoverable and should "
+                "shrink to a pointer."
             ).format(disp=disp, cmd=cmd),
         },
         "verify-consistency": {
@@ -456,10 +459,18 @@ Heading path: {path_str}
   possible, so the doc does not have to say something the orchestrator (the one USING
   the doc and the tool) will find out by reading the output or --help of the tool.
   Everything should be discoverable, in the expected location, discovered by normal usage.
-- **Trimming policy (strict):** only trim text that is VERBATIM restated in the tool's
-  header, a code comment, or `--help`/note output. KEEP every decision rule, every
-  failure-mode illustration, and every `never`/`always` rule even if it is partially
-  discoverable — partial discoverability is NOT enough to delete. When in doubt, keep.
+- **Trimming policy (strict) + move-to-tool:** only trim text that is VERBATIM restated
+  in the tool's header, a code comment, or `--help`/note output. KEEP every decision rule,
+  failure-mode illustration, and `never`/`always` rule even if it is partially
+  discoverable — partial discoverability is NOT enough to delete. BUT for each kept
+  decision rule, failure-mode, or `never`/`always` rule that is ABOUT a tool script's
+  behavior or invocation, check whether the script ALREADY states it in its
+  header/--help/code-comments. If it does NOT, that rule is a **move-to-tool** proposal:
+  it belongs embedded in the script so the script self-describes it and the doc can
+  later shrink to a pointer. Do not default to keep-and-stop — a rule that governs a
+  script's behavior but lives only in the doc is exactly the move-to-tool case. When in
+  doubt whether a rule is embeddable, propose it; the orchestrator decides whether to
+  implement.
 
 ## How to investigate
 1. Read the paragraph above.
@@ -480,9 +491,11 @@ Heading path: {path_str}
   code comment / `--help` / a note; keep one line that names the finding and points at
   the verb/note/script. If it is only partially discoverable, keep it.
 - **delete** — fully redundant or superseded; nothing of value remains.
-- **move-to-tool** — the rule belongs embedded in the tool (a new verb, a note body,
-  a doc string). Write a proposal file (see below); do NOT edit the tool script
-  yourself.
+- **move-to-tool** — the rule is ABOUT a tool script's behavior or invocation, the
+  script does NOT already state it in its header/--help/code-comments, and it belongs
+  embedded there so the script self-describes it. Write a proposal file (see below); do
+  NOT edit the tool script yourself. Trim the doc's copy to a one-line pointer that
+  says the script's header documents why.
 
 ## What to produce
 1. Edit {ctx.worktree_path(n['id'])}/{ctx.skill_name} — only your section's lines
