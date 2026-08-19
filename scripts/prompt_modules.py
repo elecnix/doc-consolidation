@@ -6,7 +6,9 @@ that was already trimmed in a earlier pass).
 
 Modules:
   trim          — trim text verbatim-restated in the tool to a one-line pointer.
-  progressive-disclosure  — propose embedding rules (about a script's behavior) into the script.
+  progressive-disclosure  — disclose rules at the output where the tool REPORTS the
+  situation the rule governs (--help for invocation, the failure output for
+  failure modes, the status output for status) — not in a header comment.
 
 The base (accuracy/consistency/currency checks, script:line citations, keep-if-
 cross-script-orchestration) always applies; it is not a selectable module.
@@ -40,26 +42,36 @@ TRIM = (
 )
 
 PROGRESSIVE_DISCLOSURE = (
-    "**Move-to-tool module:** for each decision rule, failure-mode, `never`/`always`\n"
-    "rule, or behavioral constraint that is ABOUT a tool script's behavior or\n"
-    "invocation, check whether the script ALREADY PRINTS it when you run\n"
-    "`<script> --help` (or the script itself, if it prints guidance on a bare run).\n"
-    "If it does NOT, write a **progressive-disclosure** proposal — but the rule must go into the\n"
-    "script's RUNTIME OUTPUT, not a header comment. The whole point is: a single\n"
-    "invocation (`<script> --help`) gives the caller the status AND the rule, in one\n"
+    "**Progressive-disclosure module:** for each decision rule, failure-mode,\n"
+    "`never`/`always` rule, or behavioral constraint that is ABOUT a tool script's\n"
+    "behavior, find the output where the tool PRODUCES or REPORTS the situation the\n"
+    "rule governs — and put the rule THERE. The best place is not always `--help`;\n"
+    "it is the output the caller is reading WHEN the rule bites:\n"
+    "  - An INVOCATION rule (how to call the script, what to pass) → `--help` / usage.\n"
+    "  - A FAILURE-MODE rule (what a red result means, what to do next) → the\n"
+    "    script's FAILURE output — print the guidance alongside the failure, where\n"
+    "    the caller sees it the moment the situation occurs.\n"
+    "  - A STATUS rule (what a printed state implies) → the status output itself.\n"
+    "The principle: information that is only useful when observing a specific\n"
+    "situation is disclosed at the moment the tool reports that situation — so one\n"
+    "run gives the caller the situation AND the rule that governs it, in a single\n"
     "LLM turn. A rule buried in a header comment the agent must `read` the file to\n"
-    "find is friction and a fragile pointer — do not propose that. The proposal names:\n"
-    "(a) the rule verbatim from the doc, (b) the target script, (c) the exact\n"
-    "--help/usage/stdout text to ADD so the rule PRINTS on invocation (quote the\n"
-    "block that will appear in `--help` output — if the script has no --help, the\n"
-    "proposal adds one, or prints the rule on a bare run), (d) why the tool is the\n"
-    "right home (a caller running it learns the rule in the same turn). Do NOT edit\n"
-    "the tool script — write the proposal only. Bias toward proposing: when in doubt\n"
-    "whether a rule is embeddable in --help output, propose it; the orchestrator\n"
-    "decides whether to implement. Trim a moved rule in the doc to a one-line pointer\n"
-    "that says `run <script> --help` for the rule — never 'see the header'.\n"
-    "Verdict this module adds: **progressive-disclosure** (rule about a script's behavior, not\n"
-    "yet PRINTED by the script → write a proposal that puts it in --help output)."
+    "find is friction and a fragile pointer — do not propose that.\n"
+    "How to check: run `<script> --help` AND exercise the situation the rule is\n"
+    "about (trigger the failure, observe the status). If the rule is not already\n"
+    "printed at that point, write a **progressive-disclosure** proposal naming:\n"
+    "(a) the rule verbatim, (b) the target script, (c) the exact output location and\n"
+    "the text to ADD there (quote the block that will print — in `--help`, in the\n"
+    "failure path, or in the status output), (d) why that output is the right home\n"
+    "(the caller is already reading it when the rule applies). Do NOT edit the tool\n"
+    "script — write the proposal only. Bias toward proposing: when in doubt whether\n"
+    "a rule is embeddable in the tool's output, propose it; the orchestrator decides\n"
+    "whether to implement. Trim a moved rule in the doc to a one-line pointer that\n"
+    "names the command + situation (e.g. `run <script> --help`, or `the failure\n"
+    "output explains`) — never 'see the header'.\n"
+    "Verdict this module adds: **progressive-disclosure** (rule about a situation the\n"
+    "tool reports, not yet disclosed at that output → write a proposal that puts it\n"
+    "there)."
 )
 
 MODULES = {"trim": TRIM, "progressive-disclosure": PROGRESSIVE_DISCLOSURE}
@@ -92,5 +104,5 @@ def verdict_options_text(modules):
         lines.append("- **trim-to-pointer** — the trimmed text is VERBATIM restated in the tool's header / a code comment / `--help` / a note; keep one line that names the finding and points at the script. If it is only partially discoverable, keep it.")
         lines.append("- **delete** — fully redundant or superseded; nothing of value remains.")
     if "progressive-disclosure" in modules:
-        lines.append("- **progressive-disclosure** — the rule is ABOUT a tool script's behavior or invocation, the script does NOT already PRINT it on `<script> --help` (or a bare run), and it belongs in the script's RUNTIME OUTPUT so one invocation teaches it. Write a proposal file that quotes the --help/usage text to ADD; do NOT edit the tool script. Trim the doc's copy to `run <script> --help` for the rule — never 'see the header'.")
+        lines.append("- **progressive-disclosure** — the rule governs a situation the tool PRODUCES or REPORTS (an invocation, a failure, a status), the tool does NOT already disclose it at that output, and it belongs there so one run gives the situation AND the rule. Write a proposal naming the output location + the text to ADD; do NOT edit the tool script. Trim the doc's copy to a pointer that names the command + situation — never 'see the header'.")
     return "\n".join(lines)

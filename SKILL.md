@@ -90,9 +90,11 @@ The prompt is assembled from composable modules, selected with `--modules` on
 
 - **trim** — trim text verbatim-restated in a tool's header/`--help`/code-comment to a
   one-line pointer; keep decision rules even if partially discoverable.
-- **progressive-disclosure** — for each kept rule about a script's behavior, check whether the
-  script already states it; if not, write a progressive-disclosure proposal (rule, target script +
-  location, proposed wording, why the tool is the right home) without editing the script.
+- **progressive-disclosure** — for each kept rule about a situation a tool *produces or reports*
+  (an invocation, a failure, a status), disclose it at the output where that situation appears —
+  `--help` for invocation rules, the failure output for failure-mode rules, the status output for
+  status rules — so one run gives the caller the situation AND the rule. If the tool does not
+  already print it there, write a proposal (output location + text to add) without editing the script.
 
 A run with **all modules** (the default) does both in one pass. A run with **only
 `--modules progressive-disclosure`** skips trimming and only surfaces embeddable rules — useful on
