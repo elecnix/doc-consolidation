@@ -38,6 +38,22 @@ runs, or (b) it is an illustration no verb can own.
 
 ## Quick start
 
+**First: run `--help` on every script, do not read the source.** The scripts are
+self-documenting via argparse `--help` — that output is the discoverable summary of
+flags, defaults, and derived paths, and it is all you need to drive the pipeline. Reading
+the full source wastes context (the five scripts are ~40KB) and is exactly the kind of
+restate-the-tool prose this skill exists to cut. Run these first:
+
+```bash
+python3 scripts/split-skill-dag.py --help
+python3 scripts/make-worktrees.py  --help
+python3 scripts/drive-nodes.py     --help
+python3 scripts/apply-node.py      --help
+python3 scripts/status.py          --help
+```
+
+Only read a script's source if `--help` does not answer a specific question.
+
 Every script derives its paths from `--skill` (see `common.py`): the DB and
 briefs/diffs/verdicts/proposals land in `~/.cache/<doc-slug>/`, per-node worktrees in
 `<wt-root>/<doc-slug>/`, and the doc is committed in its own git repo. The tool script
