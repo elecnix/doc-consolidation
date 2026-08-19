@@ -128,6 +128,24 @@ See [the worked example](references/WORKED-EXAMPLE.md) for the orchestrate-pi-ag
 | Path | Role |
 |------|------|
 | `SKILL.md` | This overview. |
-| `scripts/` | The pipeline: split, worktrees, drive, apply, status + `common.py` (shared path/tool/co-author derivation) + `prompt_modules.py` (composable trim / progressive-disclosure prompt modules). |
+| `scripts/` | The pipeline: split, worktrees, drive, apply, status + `common.py` + `prompt_modules.py` + `dedup-pass.py` (cross-node dedup) (composable trim / progressive-disclosure prompt modules). |
 | `references/REFERENCE.md` | Full method: DAG, task catalog, subagent definition, wave model, apply flow, DB schema. |
 | `references/WORKED-EXAMPLE.md` | The orchestrate-pi-agents run with real numbers. |
+
+## Cross-node dedup pass
+
+The per-node DAG checks duplication **inside** a node (does this paragraph
+restate the script?). It cannot see that the same rule is stated in **two
+different sections** — e.g. a golden rule repeated in the detailed step, or a
+constraint stated in both the intro and a later section. `dedup-pass.py` runs a
+**whole-doc** pass that spots rules stated in more than one node, keeps the
+canonical statement in one section, and trims the duplicates to one-line
+pointers.
+
+```bash
+# After a per-node pass has been applied, run a cross-node dedup pass:
+python3 scripts/dedup-pass.py --skill PATH/TO/SKILL.md
+# It prints a spawn task; the subagent reads the whole doc, finds restatements,
+# and produces diffs/dedup.diff + reports/dedup.md. Apply + commit:
+git -C <worktree> apply --3way -p0 --whitespace=nowarn <cache>/diffs/dedup.diff
+```
