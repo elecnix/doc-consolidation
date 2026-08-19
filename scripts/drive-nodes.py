@@ -21,7 +21,10 @@ Usage:
   drive-nodes.py --next 10            # list the next 10 schedulable nodes
 
 --model sets the subagent model in the printed spawn task (default:
-deepseek-v4-flash — the cheap worker; pass --model <anything> to override).
+deepseek-v4-flash — the cheap worker; pass --model <anything> to override. The
+default appends `:low` to set low thinking per child (the only per-child thinking
+mechanism that works in a workflowScript — a bare `thinking:` field on the item is
+silently ignored). Drop the `:low` suffix if verdict quality drops on a harder doc.
 """
 
 import argparse
@@ -59,8 +62,8 @@ def main():
     ap.add_argument("--node", type=int, help="print one specific node's spawn task")
     ap.add_argument("--status", action="store_true")
     ap.add_argument("--next", type=int, help="list the next N schedulable nodes")
-    ap.add_argument("--model", default="deepseek-v4-flash",
-                    help="subagent model for the spawn task (default: deepseek-v4-flash)")
+    ap.add_argument("--model", default="deepseek-v4-flash:low",
+                    help="subagent model for the spawn task (default: deepseek-v4-flash:low — the :low suffix sets low thinking per child via resolveEffectiveThinking(); drop the suffix to restore the agent default if verdict quality drops)")
     args = ap.parse_args()
     ctx = Ctx.from_args(args)
 

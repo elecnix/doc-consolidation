@@ -54,7 +54,7 @@ python3 scripts/split-skill-dag.py --skill PATH/TO/SKILL.md
 python3 scripts/make-worktrees.py --nodes 5
 
 # 3. For each schedulable node, spawn ONE fresh-context subagent (context: "fresh",
-#    model from --model, default deepseek-v4-flash) with its brief. drive-nodes.py
+#    model from --model, default deepseek-v4-flash:low) with its brief. drive-nodes.py
 #    prints the exact spawn task:
 python3 scripts/drive-nodes.py --next 5
 

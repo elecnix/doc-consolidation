@@ -41,9 +41,12 @@ one safety gate the method rests on. Fresh context isolates the worker to its br
 worktree, and the tool it is verifying. The recipe is **fresh context + the cheapest
 model that still cites its evidence** — `drive-nodes.py --model` defaults to
 `deepseek-v4-flash`, which finished nodes in 1-2 minutes and produced accurate,
-line-cited verdicts on a 63K-char doc. A per-child `thinking` field is NOT honored by
-`runs.run`/`runs.all` (both `thinking: "low"` and `thinking: "high"` ran at the agent's
-default), so the model choice is the only cost knob that works per child today.
+line-cited verdicts on a 63K-char doc. Per-child thinking is controlled by a **model-string
+suffix**, not a `thinking:` field on the item — a bare `thinking: "low"` is silently
+ignored (the executor never reads it; the `worker` frontmatter default of `high` wins).
+`drive-nodes.py` defaults to `deepseek-v4-flash:low`: the `:low` suffix is parsed by
+`resolveEffectiveThinking()` and sets low thinking for that child only. Drop the `:low`
+suffix to restore the agent default if verdict quality drops on a harder doc.
 
 **Brief** (one file per node, `briefs/N%04d-*.md`): contains the node's full paragraph text,
 its task list (id + title + description), the heading path, the worktree path, the fleet
