@@ -13,9 +13,10 @@
 
 ## The task catalog
 
-Every node gets `verify-accuracy` + `verify-redundancy`. Nodes that invoke `fleet <verb>` /
-`fleet note <topic>` also get `verify-discoverability`. Nodes with code blocks or tool names
-also get `verify-consistency`. Nodes with dates or operator rulings also get `verify-currency`.
+Every node gets `verify-accuracy` + `verify-redundancy`. Nodes that invoke the tool
+(`<tool> <verb>` / `<tool> note <topic>`) also get `verify-discoverability`. Nodes with code
+blocks or tool names also get `verify-consistency`. Nodes with dates or operator rulings
+also get `verify-currency`.
 
 | Task | Title | What it checks |
 |------|-------|----------------|
@@ -25,14 +26,15 @@ also get `verify-consistency`. Nodes with dates or operator rulings also get `ve
 | verify-consistency | Verify the paragraph agrees with the script | Names, defaults, mechanics against the script source |
 | verify-currency | Verify the paragraph is current | Dates, operator rulings, superseded references |
 
-**Verdicts** (one per task): `keep` / `trim-to-pointer` / `delete` / `move-to-fleet`.
-Move-to-fleet proposals accumulate in a `proposals/` dir for a separate fleet-tool subagent
-(the fleet change involves unit tests, which is why it is delegated).
+**Verdicts** (one per task): `keep` / `trim-to-pointer` / `delete` / `move-to-tool`.
+Move-to-tool proposals accumulate in a `proposals/` dir for a separate tool subagent
+(the tool change involves unit tests, which is why it is delegated).
 
 ## The subagent definition
 
 **Agent**: `worker` (builtin), `context: "fork"` — inherits parent context for the goal and
-the tool's location.
+the tool's location. `drive-nodes.py --model` selects the subagent model; it defaults to
+the cheap `deepseek-v4-flash` (nodes finish in 1-2 minutes).
 
 **Brief** (one file per node, `briefs/N%04d-*.md`): contains the node's full paragraph text,
 its task list (id + title + description), the heading path, the worktree path, the fleet
@@ -42,9 +44,9 @@ script path, the investigation recipe, the verdict options, and the exact output
 
 > Read the brief at `<brief path>` and execute it exactly. The brief tells you what to
 > investigate, what verdicts to produce, and where to write the diff and verdicts files.
-> Your worktree is `<wt path>` — edit ONLY that SKILL.md. When done, report: your verdicts,
-> one-line reasons, and the diff path. IMPORTANT: do not read the whole fleet script. Run
-> `fleet help <verb>` for the verbs the paragraph names, compare, write your verdicts, and
+> Your worktree is `<wt path>` — edit ONLY that doc. When done, report: your verdicts,
+> one-line reasons, and the diff path. IMPORTANT: do not read the whole tool script. Run
+> `<tool> help <verb>` for the verbs the paragraph names, compare, write your verdicts, and
 > finish. Aim to complete in under 3 minutes.
 
 The efficiency constraint ("don't read the whole script, finish in 3 min") is critical —
@@ -53,14 +55,16 @@ nodes finish in 1-2 minutes.
 
 ## The wave model (5 in parallel)
 
-1. `python3 scripts/make-worktrees.py --nodes 5` — create 5 git worktrees, each on a
-   `split-node-<id>` branch from the current split-branch HEAD. Each worktree is a full
-   checkout so the subagent can run `fleet help` and grep the script.
-2. Spawn 5 forked subagents via `runs.all` (one per node), each with its worktree path.
+1. `python3 scripts/make-worktrees.py --nodes 5` — create 5 git worktrees under
+   `<wt-root>/<doc-slug>/`, each on a `split-node-<id>` branch from the doc repo's current
+   HEAD. Each worktree is a full checkout so the subagent can run `<tool> help` and grep
+   the script.
+2. Spawn 5 forked subagents via `runs.all` (one per node, model from `drive-nodes.py
+   --model`), each with its worktree path.
 3. When all 5 complete, apply each: `python3 scripts/apply-node.py <id>` — applies the
    diff with `git apply --3way` (handles context drift from sibling trims), runs the
-   doc/script agreement checks (fences balanced, verbs resolve, notes exist), commits
-   SKILL.md with an explicit path, and records the commit id on the node's tasks.
+   doc/tool agreement checks (fences balanced, verbs resolve, notes exist), commits the
+   doc with an explicit path, and records the commit id on the node's tasks.
 4. Repeat until the frontier is empty.
 
 **Per-worktree isolation** is the key to conflict-free parallelism: each subagent's diff is
@@ -70,20 +74,36 @@ sibling's trim changed the context.
 
 ## The tooling
 
-All scripts live in `scripts/` and take `--skill`, `--db`, `--fleet` params with sensible
-defaults (override for any doc, not just the orchestrate-pi-agents skill).
+All scripts live in `scripts/` and share one `--skill` flag: everything else derives from
+it (see `common.py`). Point `--skill` at any markdown doc in a git repo and the pipeline
+works unchanged:
+
+- **DB + artifacts** land in `~/.cache/<doc-slug>/` (skill-dag.db, briefs/, diffs/,
+  verdicts/, proposals/, SKILL.orig.md) — a doc slug prefixes the repo dir for generic
+  names (SKILL.md, README.md) so two skill repos never collide.
+- **Per-node worktrees** live under `<wt-root>/<doc-slug>/N%04d` (default wt-root:
+  `~/Source/doc-split-wt`), branched from the doc repo's current HEAD.
+- **The tool** (the script whose behavior the doc must not restate) is auto-detected:
+  `<repo>/scripts/fleet` first, then `~/.agents/skills/<doc-name>/scripts/<basename>`.
+  `--tool PATH` forces it; `--no-tool` disables tool-dependent checks and task kinds.
+- **Commit identity**: the commit trailer uses git config user.name/email of the doc
+  repo; `--co-author NAME` overrides.
+- **DB meta remembers** the source doc, tool, and co-author, so the apply/drive/status
+  scripts need no flags once `split-skill-dag.py` has run — `apply-node.py <id>` just
+  works.
 
 | Script | Role |
 |--------|------|
 | `split-skill-dag.py` | Parse the doc → nodes + edges + tasks in sqlite; write briefs. `--force` rebuilds; `--briefs-only` regenerates briefs without touching the DB. |
-| `apply-node.py <id>` | Apply one node's diff, commit, record commit id. `--status` / `--next N` for progress. |
-| `drive-nodes.py` | List schedulable nodes; print the subagent spawn task. `--next N` / `--status`. |
-| `make-worktrees.py` | Create / clean up per-node git worktrees. `--nodes N` / `--cleanup`. |
+| `apply-node.py <id>` | Apply one node's diff, commit, record commit id. `--status` / `--next N` / `--dry-run`. |
+| `drive-nodes.py` | Print the subagent spawn task (with model) per node. `--next N` / `--status` / `--model`. |
+| `make-worktrees.py` | Create / clean up per-node git worktrees. `--nodes N` / `--node N` / `--cleanup` (also drops leftover branches) / `--list`. |
 | `status.py` | One-line progress for the 2-minute monitor tick. |
 
-**The DB** (`~/.cache/<name>/skill-dag.db`): sqlite with `nodes`, `edges`, `tasks`,
-`node_tasks` tables. Each task row carries `status`, `commit_id`, `done_at` — so you can
-track which paragraph's tasks were done and which commit applied them.
+**The DB** (`~/.cache/<doc-slug>/skill-dag.db`): sqlite with `nodes`, `edges`, `tasks`,
+`meta` tables. Each task row carries `status`, `commit_id`, `done_at` — so you can track
+which paragraph's tasks were done and which commit applied them. The `meta` table records
+the source doc path/commit, the tool path, and the co-author at split time.
 
 **The monitor**: `monitor` tool with a 2-minute poll of `status.py` — emits one line per
 tick: `done X/N | tasks Y/M (+Z/2m) | frontier F`. The `+Z/2m` is the throughput signal.
@@ -93,12 +113,12 @@ tick: `done X/N | tasks Y/M (+Z/2m) | frontier F`. The `+Z/2m` is the throughput
 ```
 subagent writes:  diffs/N%04d.diff (git diff --no-prefix, empty = keep)
                   verdicts/N%04d.md (one line per task: "T0001 verify-accuracy: keep — reason")
-                  proposals/N%04d.md (only if move-to-fleet)
+                  proposals/N%04d.md (only if move-to-tool)
 
 orchestrator:     python3 apply-node.py <id>
-                  → git apply --3way (handles context drift)
-                  → check_doc_agreement (fences, verbs, notes)
-                  → git add SKILL.md && git commit -m "skill-split: node <id> <heading> (<tasks>)"
+                  → git apply --3way (handles context drift; patch -p0 without a repo)
+                  → check_doc_agreement (fences; tool verbs; tool note topics)
+                  → git add <doc> && git commit -m "skill-split: node <id> <heading> (<tasks>)"
                   → record commit_id on node's tasks in sqlite
                   → mark node done
 ```

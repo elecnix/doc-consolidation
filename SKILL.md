@@ -36,16 +36,24 @@ runs, or (b) it is an illustration no verb can own.
 
 ## Quick start
 
+Every script derives its paths from `--skill` (see `common.py`): the DB and
+briefs/diffs/verdicts/proposals land in `~/.cache/<doc-slug>/`, per-node worktrees in
+`<wt-root>/<doc-slug>/`, and the doc is committed in its own git repo. The tool script
+(the one whose help/output the doc must not restate) is auto-detected, and commit
+identity comes from the repo's git config — no flags needed beyond the doc path.
+
 ```bash
 # 1. Split the doc into a DAG + tasks, write per-node briefs
 python3 scripts/split-skill-dag.py --skill PATH/TO/SKILL.md
-      # default DB: ~/.cache/fleet-skill-split/skill-dag.db (override with --db)
+      # everything else (DB, briefs, worktrees, tool, co-author) derives from --skill
+      # --tool PATH / --no-tool override tool detection; --co-author NAME overrides git config
 
 # 2. Create git worktrees for the first wave (5 in parallel)
 python3 scripts/make-worktrees.py --nodes 5
 
-# 3. For each schedulable node, spawn ONE forked subagent (context: fork) with its brief.
-#    drive-nodes.py prints the exact spawn task:
+# 3. For each schedulable node, spawn ONE forked subagent (context: fork, model from
+#    --model, default deepseek-v4-flash) with its brief. drive-nodes.py prints the
+#    exact spawn task:
 python3 scripts/drive-nodes.py --next 5
 
 # 4. When the wave completes, apply + commit + record each node:
@@ -64,8 +72,8 @@ When the DAG is fully drained you get:
 - A **much smaller doc** (worked example cut 38% of words) whose remaining paragraphs were
   each verified accurate and non-redundant.
 - A **sqlite tracking DB** linking every node's task to the commit that resolved it.
-- A **`proposals/` directory** of `move-to-fleet` rules that belong in the tool, for a
-  separate fleet-tool subagent to implement.
+- A **`proposals/` directory** of `move-to-tool` rules that belong in the tool, for a
+  separate tool subagent to implement.
 - The decision-guidance core — "what you need before any tool runs" — kept intact.
 
 See [the worked example](references/WORKED-EXAMPLE.md) for the orchestrate-pi-agents run.
@@ -75,6 +83,6 @@ See [the worked example](references/WORKED-EXAMPLE.md) for the orchestrate-pi-ag
 | Path | Role |
 |------|------|
 | `SKILL.md` | This overview. |
-| `scripts/` | The pipeline: split, worktrees, drive, apply, status. |
+| `scripts/` | The pipeline: split, worktrees, drive, apply, status + `common.py` (shared path/tool/co-author derivation). |
 | `references/REFERENCE.md` | Full method: DAG, task catalog, subagent definition, wave model, apply flow, DB schema. |
 | `references/WORKED-EXAMPLE.md` | The orchestrate-pi-agents run with real numbers. |

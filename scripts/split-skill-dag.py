@@ -2,10 +2,6 @@
 """
 split-skill-dag.py — split a skill markdown file into a DAG of paragraph nodes in sqlite.
 
-The orchestrate-pi-agents SKILL.md has grown to ~370KB / 5587 lines / 61K words. This
-script splits it into a DAG of paragraph nodes so each paragraph can be verified,
-trimmed, or deleted by one forked subagent, with per-node task tracking.
-
 Nodes: one per section (heading + body), with oversized sections chunked into
 consecutive chunk nodes. Edges: heading hierarchy (child depends on parent), chunk
 order, and cross-references (a node that names another node's heading depends on it).
@@ -13,13 +9,18 @@ order, and cross-references (a node that names another node's heading depends on
 Tasks: per-node verification tasks assigned by content heuristics:
   verify-accuracy        every node
   verify-redundancy      every node
-  verify-discoverability nodes that invoke `fleet <verb>` / `fleet note <topic>`
+  verify-discoverability nodes that invoke the tool (`<tool> <verb>` / `<tool> note <topic>`)
   verify-consistency     nodes with code blocks or tool names
   verify-currency        nodes with dates / operator rulings
 
+All paths derive from --skill (see common.py): the DB lives at
+~/.cache/<skill-name>/skill-dag.db, briefs/diffs/verdicts/proposals next to it,
+per-node worktrees at <wt-root>/<skill-name>/N%04d.
+
 Usage:
   split-skill-dag.py [--skill PATH] [--db PATH] [--chunk-words N] [--force]
-                     [--briefs DIR] [--next N]
+                     [--briefs-only] [--next N] [--tool PATH] [--no-tool]
+                     [--co-author NAME] [--wt-root DIR]
 
 The DB is written fresh; --force overwrites an existing one (which would clobber
 recorded task progress — use it only to rebuild from scratch).
@@ -33,77 +34,90 @@ import subprocess
 import sys
 import time
 
+from common import Ctx
+
 # --------------------------------------------------------------------------- task catalog
 
-TASK_CATALOG = {
-    "verify-accuracy": {
-        "title": "Verify this paragraph is still accurate",
-        "description": (
-            "Check every claim in this paragraph against the current state of the fleet tool "
-            "and the skill repo. A claim is inaccurate if the tool's behavior, verb names, "
-            "defaults, env vars, file paths, or suppression windows have changed since the "
-            "paragraph was written. How to check: read the paragraph, then read the relevant "
-            "part of scripts/fleet (grep for the verb or name it mentions) and run "
-            "`~/.agents/skills/orchestrate-pi-agents/scripts/fleet help <verb>` or "
-            "`fleet note <topic>` where the paragraph names one. Fix drift by editing the "
-            "paragraph; if the paragraph describes behavior that no longer exists, propose "
-            "deletion. Do not edit scripts/fleet — if the tool itself is wrong, write a "
-            "fleet-change proposal instead."
-        ),
-    },
-    "verify-redundancy": {
-        "title": "Verify this paragraph is redundant",
-        "description": (
-            "The goal is to shrink SKILL.md a LOT. A paragraph is redundant if its content is "
-            "already discoverable by normal use of the fleet tool: `fleet help <verb>` output, "
-            "`fleet note <topic>`, the script's own doc strings, or the tool's stdout. If the "
-            "orchestrator would learn it by running the tool or reading its output/--help, the "
-            "paragraph should be trimmed to a one-line pointer or deleted. Keep only what is "
-            "needed BEFORE any tool runs: how to decide, how to report, what to delegate, and "
-            "the failure modes of monitoring itself. How to check: run the verb the paragraph "
-            "describes and compare what it prints with what the paragraph says. Verdict options: "
-            "keep / trim-to-pointer / delete / move-to-fleet (write a fleet-change proposal; do "
-            "not edit scripts/fleet)."
-        ),
-    },
-    "verify-discoverability": {
-        "title": "Verify the content is discoverable from the tool",
-        "description": (
-            "For every `fleet <verb>` invocation or tool behavior this paragraph describes, run "
-            "`fleet help <verb>` (and the verb itself where safe) and confirm the paragraph adds "
-            "information beyond what the tool prints. Anything the tool already says should be "
-            "removed from the paragraph. If the tool does NOT say it, the paragraph may stay — "
-            "or the rule should be embedded in the tool (write a fleet-change proposal; do not "
-            "edit scripts/fleet yourself). The test: would the orchestrator find this out by "
-            "normal usage of the tool? If yes, the paragraph is discoverable and should shrink "
-            "to a pointer."
-        ),
-    },
-    "verify-consistency": {
-        "title": "Verify the paragraph agrees with the script",
-        "description": (
-            "Cross-check names, defaults, and mechanics against scripts/fleet: verb names, note "
-            "topics, env vars, file paths, defaults, suppression windows, state locations. The "
-            "doc and the script must agree; `fleet selfcheck` enforces the mechanical half "
-            "(verb names, note topics, fences). How to check: grep scripts/fleet for each name "
-            "the paragraph uses; run `fleet selfcheck` from the skill dir. Fix any drift in the "
-            "paragraph. Do not edit scripts/fleet — if the script is wrong, write a "
-            "fleet-change proposal."
-        ),
-    },
-    "verify-currency": {
-        "title": "Verify the paragraph is current",
-        "description": (
-            "Check for stale dates, superseded operator rulings, references to changes that have "
-            "since landed or been reverted, and 'recently' claims. A paragraph that records a "
-            "ruling must keep the ruling's date and must not be contradicted by a later ruling "
-            "in the same file. How to check: read the paragraph for dates and ruling markers "
-            "(e.g. 'operator ruling', 'REVISED', 'adopted'), then search the rest of SKILL.md "
-            "and `git log` for later rulings that supersede it. Fix by updating the paragraph or "
-            "proposing deletion."
-        ),
-    },
-}
+def make_catalog(tool_name):
+    """Task catalog with the tool's name substituted into the descriptions.
+
+    {disp} is a prose reference ("the fleet" / "the"), {cmd} a command
+    invocation ("fleet" / "<tool>"). Both render naturally with or without
+    a detected tool.
+    """
+    disp = "the fleet" if tool_name else "the"
+    cmd = tool_name or "<tool>"
+    return {
+        "verify-accuracy": {
+            "title": "Verify this paragraph is still accurate",
+            "description": (
+                "Check every claim in this paragraph against the current state of {disp} "
+                "tool and the skill repo. A claim is inaccurate if the tool's behavior, "
+                "verb names, defaults, env vars, file paths, or suppression windows have "
+                "changed since the paragraph was written. How to check: read the paragraph, "
+                "then read the relevant part of {disp} script (grep for the verb or name it "
+                "mentions) and run `{cmd} help <verb>` or `{cmd} note <topic>` where the "
+                "paragraph names one. Fix drift by editing the paragraph; if the paragraph "
+                "describes behavior that no longer exists, propose deletion. Do not edit "
+                "{disp} script — if the tool itself is wrong, write a move-to-tool proposal "
+                "instead."
+            ).format(disp=disp, cmd=cmd),
+        },
+        "verify-redundancy": {
+            "title": "Verify this paragraph is redundant",
+            "description": (
+                "The goal is to shrink SKILL.md a LOT. A paragraph is redundant if its "
+                "content is already discoverable by normal use of the tool: `{cmd} help "
+                "<verb>` output, `{cmd} note <topic>`, the script's own doc strings, or the "
+                "tool's stdout. If the orchestrator would learn it by running the tool or "
+                "reading its output/--help, the paragraph should be trimmed to a one-line "
+                "pointer or deleted. Keep only what is needed BEFORE any tool runs: how to "
+                "decide, how to report, what to delegate, and the failure modes of the "
+                "process itself. How to check: run the verb the paragraph describes and "
+                "compare what it prints with what the paragraph says. Verdict options: "
+                "keep / trim-to-pointer / delete / move-to-tool (write a proposal; do not "
+                "edit {disp} script)."
+            ).format(disp=disp, cmd=cmd),
+        },
+        "verify-discoverability": {
+            "title": "Verify the content is discoverable from the tool",
+            "description": (
+                "For every `{cmd} <verb>` invocation or tool behavior this paragraph "
+                "describes, run `{cmd} help <verb>` (and the verb itself where safe) and "
+                "confirm the paragraph adds information beyond what the tool prints. "
+                "Anything the tool already says should be removed from the paragraph. If the "
+                "tool does NOT say it, the paragraph may stay — or the rule should be "
+                "embedded in the tool (write a move-to-tool proposal; do not edit {disp} "
+                "script yourself). The test: would the orchestrator find this out by normal "
+                "usage of the tool? If yes, the paragraph is discoverable and should shrink "
+                "to a pointer."
+            ).format(disp=disp, cmd=cmd),
+        },
+        "verify-consistency": {
+            "title": "Verify the paragraph agrees with the script",
+            "description": (
+                "Cross-check names, defaults, and mechanics against the tool script: verb "
+                "names, note topics, env vars, file paths, defaults, suppression windows, "
+                "state locations. The doc and the script must agree. How to check: grep the "
+                "tool script for each name the paragraph uses; run the tool's selfcheck "
+                "verb where one exists. Fix any drift in the paragraph. Do not edit the "
+                "tool script — if the script is wrong, write a move-to-tool proposal."
+            ),
+        },
+        "verify-currency": {
+            "title": "Verify the paragraph is current",
+            "description": (
+                "Check for stale dates, superseded operator rulings, references to changes "
+                "that have since landed or been reverted, and 'recently' claims. A paragraph "
+                "that records a ruling must keep the ruling's date and must not be "
+                "contradicted by a later ruling in the same file. How to check: read the "
+                "paragraph for dates and ruling markers (e.g. 'operator ruling', 'REVISED', "
+                "'adopted'), then search the rest of the doc and `git log` for later rulings "
+                "that supersede it. Fix by updating the paragraph or proposing deletion."
+            ),
+        },
+    }
+
 
 # --------------------------------------------------------------------------- parsing
 
@@ -259,19 +273,21 @@ def build_edges(nodes):
 
 # --------------------------------------------------------------------------- task assignment
 
-def assign_tasks(nodes, fm):
+def assign_tasks(nodes, fm, tool_name):
     """Return list of task dicts: id, node_id, kind, title, description."""
     tasks = []
     seq = 0
+    catalog = make_catalog(tool_name)
     all_nodes = [{"id": 0, "heading": "frontmatter", "content": fm.get("description", "")}] + nodes
     for n in all_nodes:
         content = n["content"]
         kinds = ["verify-accuracy", "verify-redundancy"]
-        if re.search(r"\bfleet (note|[a-z][a-z-]+)\b", content):
+        if tool_name and re.search(r"\b%s (note|[a-z][a-z-]+)\b" % re.escape(tool_name), content):
             kinds.append("verify-discoverability")
-        if "```" in content or re.search(r"\b(fleet|note|FLEET_|PI_RPC|BIFROST|~/.cache/fleet)\b", content):
+        if "```" in content or (tool_name and re.search(
+                r"\b(%s|note|_DIR|~/.cache)\b" % re.escape(tool_name), content)):
             kinds.append("verify-consistency")
-        if re.search(r"2026-\d\d-\d\d|operator ruling|REVISED|adopted", content):
+        if re.search(r"\d{4}-\d\d-\d\d|operator ruling|REVISED|adopted", content):
             kinds.append("verify-currency")
         for k in kinds:
             seq += 1
@@ -279,8 +295,8 @@ def assign_tasks(nodes, fm):
                 "id": "T%04d" % seq,
                 "node_id": n["id"],
                 "kind": k,
-                "title": TASK_CATALOG[k]["title"],
-                "description": TASK_CATALOG[k]["description"],
+                "title": catalog[k]["title"],
+                "description": catalog[k]["description"],
             })
     return tasks
 
@@ -326,7 +342,9 @@ CREATE INDEX idx_edges_dep ON edges(depends_on);
 """
 
 
-def write_db(db_path, fm, nodes, edges, tasks, skill_path, force):
+def write_db(ctx, fm, nodes, edges, tasks):
+    db_path = ctx.db
+    force = getattr(ctx, "force", False)
     if os.path.exists(db_path) and not force:
         sys.exit("DB exists: %s — pass --force to rebuild (clobbers recorded progress)" % db_path)
     if os.path.exists(db_path):
@@ -335,18 +353,22 @@ def write_db(db_path, fm, nodes, edges, tasks, skill_path, force):
     conn.executescript(SCHEMA)
     cur = conn.cursor()
     commit = ""
-    try:
+    if ctx.repo_root:
         commit = subprocess.run(
-            ["git", "-C", os.path.dirname(skill_path), "rev-parse", "HEAD"],
+            ["git", "-C", ctx.repo_root, "rev-parse", "HEAD"],
             capture_output=True, text=True).stdout.strip()
-    except Exception:
-        pass
     cur.executemany("INSERT INTO meta VALUES (?,?)", [
-        ("source", os.path.abspath(skill_path)),
+        ("source", ctx.skill_path),
         ("source_commit", commit),
         ("split_at", time.strftime("%Y-%m-%d %H:%M:%S")),
         ("frontmatter_name", fm.get("name", "")),
         ("frontmatter_description", fm.get("description", "")),
+        ("tool", ctx.tool or ""),
+        ("coauthor", ctx.coauthor or ""),
+        ("repo_root", ctx.repo_root or ""),
+        ("skill_rel", ctx.skill_rel),
+        ("wt_dir", ctx.wt_dir),
+        ("branch_prefix", ctx.branch_prefix),
     ])
     # frontmatter node (id 0)
     cur.execute(
@@ -372,8 +394,8 @@ def slugify(s):
     return s[:48] or "node"
 
 
-def write_briefs(briefs_dir, nodes, tasks, skill_path, fleet_path, orig_path, diffs_dir, proposals_dir, verdicts_dir, fm):
-    os.makedirs(briefs_dir, exist_ok=True)
+def write_briefs(ctx, nodes, tasks, fm):
+    os.makedirs(ctx.briefs_dir, exist_ok=True)
     by_node = {}
     for t in tasks:
         by_node.setdefault(t["node_id"], []).append(t)
@@ -384,8 +406,8 @@ def write_briefs(briefs_dir, nodes, tasks, skill_path, fleet_path, orig_path, di
     for n in all_nodes:
         ntasks = by_node.get(n["id"], [])
         fname = "N%04d-%s.md" % (n["id"], slugify(n["heading"]))
-        with open(os.path.join(briefs_dir, fname), "w", encoding="utf-8") as f:
-            f.write(brief_text(n, ntasks, skill_path, fleet_path, orig_path, diffs_dir, proposals_dir, verdicts_dir, all_nodes))
+        with open(os.path.join(ctx.briefs_dir, fname), "w", encoding="utf-8") as f:
+            f.write(brief_text(ctx, n, ntasks, all_nodes))
     return len(all_nodes)
 
 
@@ -401,14 +423,15 @@ def heading_path(nodes, n):
     return path
 
 
-def brief_text(n, ntasks, skill_path, fleet_path, orig_path, diffs_dir, proposals_dir, verdicts_dir, nodes):
+def brief_text(ctx, n, ntasks, nodes):
     loc = "lines %d-%d" % (n["start_line"], n["end_line"]) if n["kind"] != "frontmatter" else "frontmatter"
     path = heading_path(nodes, n)
     path_str = " > ".join(h for _, h in path) if path else "(top level)"
-    wt = os.path.expanduser("~/Source/skill-split-wt/N%04d" % n["id"])
+    wt = ctx.worktree_path(n["id"])
     task_lines = "\n".join(
         "- **%s** — %s\n  %s" % (t["id"], t["title"], t["description"]) for t in ntasks
     )
+    tool = ctx.tool or "(no tool detected)"
     return f"""# Node {n['id']} — {n['heading'] or '(frontmatter)'}
 
 ## Your tasks (answer ALL of them; one subagent per node because they all edit the same lines)
@@ -422,119 +445,114 @@ Heading path: {path_str}
 ```
 
 ## Your worktree
-- Your worktree: {wt} (branch split-node-{n['id']}), created from the current split-branch
-  HEAD before you started. The skill file in YOUR worktree is {wt}/SKILL.md — that is the
-  file you edit.
+- Your worktree: {wt} (branch {ctx.worktree_branch(n['id'])}), created from the current
+  split-branch HEAD before you started. The skill file in YOUR worktree is
+  {ctx.worktree_path(n['id'])}/{ctx.skill_name} — that is the file you edit.
 - Locate your section by its heading — the line numbers in this brief are from the
   original file and may have shifted after earlier trims.
 
 ## Context you need
-- The fleet tool (the checked implementation of every recipe): {fleet_path}
-- The goal: shrink SKILL.md a LOT. Embed its rules into the fleet CLI as much as
-  possible, so the skill does not have to say something the orchestrator (the one USING
-  the skill and the fleet tool) will find out by reading the output or --help of the
-  fleet tool. Everything should be discoverable, in the expected location, discovered
-  by normal usage.
+- The tool (the checked implementation of the recipes): {tool}
+- The goal: shrink {ctx.skill_name} a LOT. Embed its rules into the tool CLI as much as
+  possible, so the doc does not have to say something the orchestrator (the one USING
+  the doc and the tool) will find out by reading the output or --help of the tool.
+  Everything should be discoverable, in the expected location, discovered by normal usage.
 
 ## How to investigate
 1. Read the paragraph above.
-2. Search your worktree's SKILL.md for the surrounding section (grep for the heading) so
-   you understand context.
-3. For every `fleet <verb>` / `fleet note <topic>` the paragraph names, run:
-   `{fleet_path} help <verb>` and `{fleet_path} note <topic>` (and the verb itself
-   where safe). Compare what the tool prints with what the paragraph claims.
-4. Grep {fleet_path} for any name, default, env var, or path the paragraph mentions
+2. Search your worktree's {ctx.skill_name} for the surrounding section (grep for the
+   heading) so you understand context.
+3. For every `{tool_name_for(ctx)} <verb>` / `{tool_name_for(ctx)} note <topic>` the
+   paragraph names, run: `{ctx.tool or tool_name_for(ctx)} help <verb>` and
+   `{ctx.tool or tool_name_for(ctx)} note <topic>` (and the verb itself where safe).
+   Compare what the tool prints with what the paragraph claims.
+4. Grep the tool script for any name, default, env var, or path the paragraph mentions
    and check it still matches.
-5. Check `git -C {os.path.dirname(skill_path)} log --oneline -10` for recent changes
-   that may have superseded the paragraph.
+5. Check `git log --oneline -10` in the doc's repo ({ctx.repo_root or 'not a git repo'})
+   for recent changes that may have superseded the paragraph.
 
 ## Verdict options (one per task)
-- **keep** — the paragraph is accurate, non-redundant, and needed before any tool runs.
+- **keep** — the paragraph is accurate, non-redundant, and needed before the tool runs.
 - **trim-to-pointer** — most of it is discoverable from the tool; keep one line that
   names the finding and points at the verb/note.
 - **delete** — fully redundant or superseded; nothing of value remains.
-- **move-to-fleet** — the rule belongs embedded in the tool (a new verb, a note body,
-  a doc string). Write a fleet-change proposal file (see below); do NOT edit
-  scripts/fleet yourself.
+- **move-to-tool** — the rule belongs embedded in the tool (a new verb, a note body,
+  a doc string). Write a proposal file (see below); do NOT edit the tool script
+  yourself.
 
 ## What to produce
-1. Edit {wt}/SKILL.md — only your section's lines (keep = no edit).
-2. Produce the diff: `git -C {wt} diff --no-prefix -- SKILL.md > {os.path.join(diffs_dir, 'N%04d.diff' % n['id'])}`
+1. Edit {ctx.worktree_path(n['id'])}/{ctx.skill_name} — only your section's lines
+   (keep = no edit).
+2. Produce the diff: `git -C {ctx.worktree_path(n['id'])} diff --no-prefix -- {ctx.skill_name} > {os.path.join(ctx.diffs_dir, 'N%04d.diff' % n['id'])}`
    (an empty file means keep — no change).
-3. Write one verdict line per task to: {os.path.join(verdicts_dir, 'N%04d.md' % n['id'])}
+3. Write one verdict line per task to: {os.path.join(ctx.verdicts_dir, 'N%04d.md' % n['id'])}
    Format, one line per task:
    `T0001 verify-accuracy: keep — one-line reason`
-4. If any verdict is move-to-fleet, write a proposal to:
-   {os.path.join(proposals_dir, 'N%04d.md' % n['id'])} — one paragraph per rule: what
+4. If any verdict is move-to-tool, write a proposal to:
+   {os.path.join(ctx.proposals_dir, 'N%04d.md' % n['id'])} — one paragraph per rule: what
    rule, which verb/note should carry it, and why the tool is the right home.
 5. Report back: your verdicts, a one-line reason each, and the diff path.
 
 ## Rules
-- Edit ONLY your worktree's SKILL.md. Never touch the shared split worktree
-  ({skill_path}), never commit, never push, never run fleet publish.
+- Edit ONLY your worktree's {ctx.skill_name}. Never touch the shared split worktree
+  ({ctx.skill_path}), never commit, never push.
 - Touch only your section's lines — other sections belong to other subagents running
   in parallel.
-- Never edit scripts/fleet. Never paste secrets or internal identifiers into the diff
+- Never edit the tool script. Never paste secrets or internal identifiers into the diff
   or proposal.
 """
+
+
+def tool_name_for(ctx):
+    return ctx.tool_name or "tool"
 
 
 # --------------------------------------------------------------------------- main
 
 def main():
     ap = argparse.ArgumentParser(description="Split a skill markdown file into a DAG of paragraph nodes in sqlite.")
-    ap.add_argument("--skill", default=os.path.expanduser("~/Source/orchestrate-pi-agents-split/SKILL.md"))
-    ap.add_argument("--db", default=os.path.expanduser("~/.cache/fleet-skill-split/skill-dag.db"))
-    ap.add_argument("--chunk-words", type=int, default=500)
+    Ctx.add_args(ap)
     ap.add_argument("--force", action="store_true")
-    ap.add_argument("--briefs", default=os.path.expanduser("~/.cache/fleet-skill-split/briefs"))
-    ap.add_argument("--next", type=int, default=0, help="print the next N schedulable nodes and exit")
     ap.add_argument("--briefs-only", action="store_true", help="regenerate briefs from the current skill without touching the DB")
+    ap.add_argument("--next", type=int, default=0, help="print the next N schedulable nodes and exit")
     args = ap.parse_args()
+    ctx = Ctx.from_args(args)
+    ctx.force = args.force
+    ctx.ensure_dirs()
 
-    fleet_path = os.path.expanduser("~/.agents/skills/orchestrate-pi-agents/scripts/fleet")
-    base = os.path.dirname(args.db)
-    orig_path = os.path.join(base, "SKILL.orig.md")
-    diffs_dir = os.path.join(base, "diffs")
-    proposals_dir = os.path.join(base, "proposals")
-    verdicts_dir = os.path.join(base, "verdicts")
-    os.makedirs(base, exist_ok=True)
-    os.makedirs(diffs_dir, exist_ok=True)
-    os.makedirs(proposals_dir, exist_ok=True)
-    os.makedirs(verdicts_dir, exist_ok=True)
-
-    fm, lines, body_start = parse_skill(args.skill)
+    fm, lines, body_start = parse_skill(ctx.skill_path)
     sections = build_sections(lines, body_start)
-    nodes = build_nodes(sections, args.chunk_words)
+    nodes = build_nodes(sections, ctx.chunk_words)
     edges = build_edges(nodes)
-    tasks = assign_tasks(nodes, fm)
+    tasks = assign_tasks(nodes, fm, ctx.tool_name)
 
     # snapshot the pristine original for subagent diffing
-    with open(orig_path, "w", encoding="utf-8") as f:
+    with open(ctx.orig_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
 
     if args.briefs_only:
-        n_briefs = write_briefs(args.briefs, nodes, tasks, args.skill, fleet_path, orig_path, diffs_dir, proposals_dir, verdicts_dir, fm)
-        print("briefs regenerated: %d -> %s" % (n_briefs, args.briefs))
+        n_briefs = write_briefs(ctx, nodes, tasks, fm)
+        print("briefs regenerated: %d -> %s" % (n_briefs, ctx.briefs_dir))
         return
 
-    write_db(args.db, fm, nodes, edges, tasks, args.skill, args.force)
-    n_briefs = write_briefs(args.briefs, nodes, tasks, args.skill, fleet_path, orig_path, diffs_dir, proposals_dir, verdicts_dir, fm)
+    write_db(ctx, fm, nodes, edges, tasks)
+    n_briefs = write_briefs(ctx, nodes, tasks, fm)
 
     # summary
     from collections import Counter
     kinds = Counter(t["kind"] for t in tasks)
     n_edges = len(edges)
     n_chunks = sum(1 for n in nodes if n["kind"] == "chunk")
-    print("split %s -> %s" % (args.skill, args.db))
+    print("split %s -> %s" % (ctx.skill_path, ctx.db))
     print("  nodes: %d (%d sections, %d chunks, 1 frontmatter)" % (len(nodes), len(nodes) - n_chunks - 1, n_chunks))
     print("  edges: %d (%s)" % (n_edges, ", ".join("%s=%d" % (k, c) for k, c in Counter(e[2] for e in edges).items())))
     print("  tasks: %d (%s)" % (len(tasks), ", ".join("%s=%d" % (k, c) for k, c in kinds.items())))
-    print("  briefs: %d -> %s" % (n_briefs, args.briefs))
-    print("  original snapshot: %s" % orig_path)
+    print("  briefs: %d -> %s" % (n_briefs, ctx.briefs_dir))
+    print("  original snapshot: %s" % ctx.orig_path)
+    print("  tool: %s" % (ctx.tool or "(none)"))
 
     if args.next:
-        conn = sqlite3.connect(args.db)
+        conn = sqlite3.connect(ctx.db)
         cur = conn.cursor()
         rows = cur.execute("""
             SELECT n.id, n.heading, n.kind, n.word_count, n.start_line, n.end_line

@@ -1,36 +1,33 @@
 #!/usr/bin/env python3
 """
-drive-nodes.py — spawn one forked subagent per schedulable node, apply, commit, record.
+drive-nodes.py — list schedulable nodes; print the subagent spawn task per node.
 
-Each node's brief (in ~/.cache/fleet-skill-split/briefs/N%04d-*.md) is handed to one
-forked subagent. The subagent investigates the paragraph against the fleet tool, writes
-its diff + verdicts, and reports back. This driver then applies the diff to the worktree
-SKILL.md, runs the doc/script agreement checks, commits (one commit per node), and
-records the commit id on the node's tasks.
+Each node's brief (in <cache>/briefs/N%04d-*.md) is handed to one forked subagent.
+The subagent investigates the paragraph against the tool, writes its diff + verdicts,
+and reports back. This driver prints the ready-to-run spawn task; the caller (the
+orchestrator session) runs it via the subagent tool with context: "fork".
+
+All paths derive from --skill (see common.py).
 
 Usage:
-  drive-nodes.py --nodes 3            # spawn subagents for the next 3 schedulable nodes
-  drive-nodes.py --node 5             # spawn one specific node
+  drive-nodes.py --nodes 3            # print spawn tasks for the next 3 schedulable nodes
+  drive-nodes.py --node 5             # print one specific node's spawn task
   drive-nodes.py --status             # DB progress
   drive-nodes.py --next 10            # list the next 10 schedulable nodes
 
-The subagent invocation is printed as a ready-to-run command; the caller (the
-orchestrator session) runs it via the subagent tool with context: "fork".
+--model sets the subagent model in the printed spawn task (default:
+deepseek-v4-flash — the cheap worker; pass --model <anything> to override).
 """
 
 import argparse
-import glob
-import os
 import sqlite3
 import sys
 
-BASE = os.path.expanduser("~/.cache/fleet-skill-split")
-DB = os.path.join(BASE, "skill-dag.db")
-BRIEFS = os.path.join(BASE, "briefs")
+from common import Ctx
 
 
-def db_conn():
-    conn = sqlite3.connect(DB)
+def db_conn(ctx):
+    conn = sqlite3.connect(ctx.db)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -50,20 +47,19 @@ def schedulable(conn, limit):
     """, (limit,)).fetchall()
 
 
-def brief_for(node_id):
-    matches = glob.glob(os.path.join(BRIEFS, "N%04d-*.md" % node_id))
-    return matches[0] if matches else None
-
-
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--nodes", type=int, help="spawn subagents for the next N schedulable nodes")
-    ap.add_argument("--node", type=int, help="spawn one specific node")
+    Ctx.add_args(ap)
+    ap.add_argument("--nodes", type=int, help="print spawn tasks for the next N schedulable nodes")
+    ap.add_argument("--node", type=int, help="print one specific node's spawn task")
     ap.add_argument("--status", action="store_true")
     ap.add_argument("--next", type=int, help="list the next N schedulable nodes")
+    ap.add_argument("--model", default="deepseek-v4-flash",
+                    help="subagent model for the spawn task (default: deepseek-v4-flash)")
     args = ap.parse_args()
+    ctx = Ctx.from_args(args)
 
-    conn = db_conn()
+    conn = db_conn(ctx)
 
     if args.status:
         cur = conn.cursor()
@@ -84,14 +80,14 @@ def main():
         ap.error("--node or --nodes required")
 
     for nid in ids:
-        brief = brief_for(nid)
+        brief = ctx.brief_path(nid)
         if not brief:
-            print("no brief for node %d" % nid)
+            print("no brief for node %d (run split-skill-dag.py first?)" % nid)
             continue
         print("=" * 70)
         print("NODE %d — %s" % (nid, brief))
         print("=" * 70)
-        print("Spawn ONE forked subagent (context: fork) with this task:")
+        print("Spawn ONE forked subagent (context: fork, model: %s) with this task:" % args.model)
         print()
         print("Read the brief at %s and execute it exactly." % brief)
         print("The brief tells you what to investigate, what verdicts to produce,")
