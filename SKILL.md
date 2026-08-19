@@ -83,6 +83,28 @@ python3 scripts/status.py
 
 Each of steps 1-4 is covered in detail in [the reference](references/REFERENCE.md).
 
+## Move-to-tool second pass
+
+The default strict-trim pass often produces **zero** `move-to-tool` proposals:
+subagents default to keep/trim and don't actively hunt for rules that *could* be
+embedded in a tool but aren't yet. A second pass with `--move-to-tool` biases them
+toward it: for each decision rule / failure-mode / `never`-`always` rule about a
+script's behavior, the subagent asks whether the script already states it, and if
+not, writes a `move-to-tool` proposal (rule, target script + location, proposed
+wording, why the tool is the right home) — without editing the script.
+
+```bash
+# After the strict-trim DAG is drained, re-split the trimmed doc and run a
+# move-to-tool pass on the nodes that reference the tool:
+python3 scripts/split-skill-dag.py --skill PATH/TO/TRIMMED.md --force
+python3 scripts/drive-nodes.py --next 5 --move-to-tool
+```
+
+The proposals accumulate in `proposals/`. A separate tool-change PR implements them
+(edits the tool scripts to embed the rules) and trims the doc to pointers — that is
+a code change with its own gates, not a docs-only fast-path. On the PRI-2201 run this
+pass surfaced 23 proposals across 11 nodes where the strict-trim pass had surfaced 0.
+
 ## Deliverables
 
 When the DAG is fully drained you get:
