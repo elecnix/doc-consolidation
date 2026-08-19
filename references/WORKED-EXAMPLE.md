@@ -22,7 +22,7 @@ whose fleet tool (`scripts/fleet`, 920KB) carries the reasoning for every recipe
 
 - **216 nodes** (144 sections + 70 chunks + 1 frontmatter + 1 H1), 224 edges (166 hierarchy,
   48 chunk, 10 cross-reference), 748 tasks.
-- **37 waves of 5** parallel forked subagents, ~1h40m wall time.
+- **37 waves of 5** parallel subagents (`context: "fresh"`), ~1h40m wall time.
 - **150 commits** on a `skill-split-dag` branch (one per node that changed the file), merged
   to `main` and pushed.
 - **149 nodes trimmed**, 67 kept as-is.

@@ -32,9 +32,18 @@ Move-to-tool proposals accumulate in a `proposals/` dir for a separate tool suba
 
 ## The subagent definition
 
-**Agent**: `worker` (builtin), `context: "fork"` — inherits parent context for the goal and
-the tool's location. `drive-nodes.py --model` selects the subagent model; it defaults to
-the cheap `deepseek-v4-flash` (nodes finish in 1-2 minutes).
+**Agent**: `worker` (builtin), `context: "fresh"` — a worker MUST use fresh
+context, never `fork`. Forked context inherits the orchestrator's session, which includes
+the pipeline scripts (`apply-node.py`, `make-worktrees.py`), the sqlite DB, and the apply/
+commit flow. A forked worker can (and on a real run, did) run `apply-node.py` itself and
+commit to the shared split branch, bypassing the orchestrator's verification step — the
+one safety gate the method rests on. Fresh context isolates the worker to its brief, the
+worktree, and the tool it is verifying. The recipe is **fresh context + the cheapest
+model that still cites its evidence** — `drive-nodes.py --model` defaults to
+`deepseek-v4-flash`, which finished nodes in 1-2 minutes and produced accurate,
+line-cited verdicts on a 63K-char doc. A per-child `thinking` field is NOT honored by
+`runs.run`/`runs.all` (both `thinking: "low"` and `thinking: "high"` ran at the agent's
+default), so the model choice is the only cost knob that works per child today.
 
 **Brief** (one file per node, `briefs/N%04d-*.md`): contains the node's full paragraph text,
 its task list (id + title + description), the heading path, the worktree path, the fleet
@@ -42,12 +51,17 @@ script path, the investigation recipe, the verdict options, and the exact output
 
 **Task text** (passed to the subagent):
 
-> Read the brief at `<brief path>` and execute it exactly. The brief tells you what to
-> investigate, what verdicts to produce, and where to write the diff and verdicts files.
-> Your worktree is `<wt path>` — edit ONLY that doc. When done, report: your verdicts,
-> one-line reasons, and the diff path. IMPORTANT: do not read the whole tool script. Run
-> `<tool> help <verb>` for the verbs the paragraph names, compare, write your verdicts, and
-> finish. Aim to complete in under 3 minutes.
+> Read the brief at `<brief path>` and execute it exactly. The brief gives you the
+> paragraph, the task list, the verdict options, and the output contract. Apply the brief's
+> **strict trimming policy**: only trim text VERBATIM restated in the tool's header, a code
+> comment, or `--help`/note output; keep every decision rule, failure-mode illustration, and
+> `never`/`always` rule even if partially discoverable. Your worktree is `<wt path>` — edit
+> ONLY that doc. When done, report your verdicts, one-line reasons each, and the diff path.
+> Every verdict line MUST cite the specific `script:line` you verified each claim against
+> (e.g. `run-pr-gates.sh:388-389`) — the orchestrator writes those lines into the commit
+> body, and a citation is what makes the trim auditable. IMPORTANT: do not read the whole
+> tool script. Run `<tool> help <verb>` for the verbs the paragraph names, compare, write
+> your verdicts, and finish. Aim to complete in under 3 minutes.
 
 The efficiency constraint ("don't read the whole script, finish in 3 min") is critical —
 without it, the first node spent 7 minutes re-reading the 920KB script in a loop. With it,
@@ -59,8 +73,9 @@ nodes finish in 1-2 minutes.
    `<wt-root>/<doc-slug>/`, each on a `split-node-<id>` branch from the doc repo's current
    HEAD. Each worktree is a full checkout so the subagent can run `<tool> help` and grep
    the script.
-2. Spawn 5 forked subagents via `runs.all` (one per node, model from `drive-nodes.py
-   --model`), each with its worktree path.
+2. Spawn 5 **fresh-context** subagents via `runs.all` (one per node, `context: "fresh"`,
+   model from `drive-nodes.py --model`), each with its worktree path. Never use
+   `context: "fork"` for workers — see the subagent definition above.
 3. When all 5 complete, apply each: `python3 scripts/apply-node.py <id>` — applies the
    diff with `git apply --3way` (handles context drift from sibling trims), runs the
    doc/tool agreement checks (fences balanced, verbs resolve, notes exist), commits the

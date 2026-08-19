@@ -2,10 +2,15 @@
 """
 drive-nodes.py — list schedulable nodes; print the subagent spawn task per node.
 
-Each node's brief (in <cache>/briefs/N%04d-*.md) is handed to one forked subagent.
-The subagent investigates the paragraph against the tool, writes its diff + verdicts,
-and reports back. This driver prints the ready-to-run spawn task; the caller (the
-orchestrator session) runs it via the subagent tool with context: "fork".
+Each node's brief (in <cache>/briefs/N%04d-*.md) is handed to one fresh-context
+subagent. The subagent investigates the paragraph against the tool, writes its diff +
+verdicts, and reports back. This driver prints the ready-to-run spawn task; the caller
+(the orchestrator session) runs it via the subagent tool with context: "fresh".
+
+Workers MUST use fresh context, never fork. A forked worker inherits the orchestrator's
+session — including these pipeline scripts and the sqlite DB — and on a real run one ran
+`apply-node.py` itself, committing to the shared split branch past the orchestrator's
+verification gate. Fresh context isolates the worker to its brief and worktree.
 
 All paths derive from --skill (see common.py).
 
@@ -87,12 +92,15 @@ def main():
         print("=" * 70)
         print("NODE %d — %s" % (nid, brief))
         print("=" * 70)
-        print("Spawn ONE forked subagent (context: fork, model: %s) with this task:" % args.model)
+        print("Spawn ONE fresh-context subagent (context: fresh, model: %s) with this task:" % args.model)
         print()
         print("Read the brief at %s and execute it exactly." % brief)
-        print("The brief tells you what to investigate, what verdicts to produce,")
-        print("and where to write the diff and verdicts files.")
+        print("Apply the brief's strict trimming policy: only trim text VERBATIM restated in")
+        print("the tool's header / a code comment / --help / a note; keep every decision rule,")
+        print("failure-mode illustration, and never/always rule even if partially discoverable.")
         print("When done, report: your verdicts, one-line reasons, and the diff path.")
+        print("Every verdict line MUST cite the specific script:line verified (e.g. open-pr.sh:7-10)")
+        print("-- the orchestrator writes those citations into the commit body.")
         print()
 
 

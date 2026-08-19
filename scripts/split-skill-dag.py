@@ -457,6 +457,10 @@ Heading path: {path_str}
   possible, so the doc does not have to say something the orchestrator (the one USING
   the doc and the tool) will find out by reading the output or --help of the tool.
   Everything should be discoverable, in the expected location, discovered by normal usage.
+- **Trimming policy (strict):** only trim text that is VERBATIM restated in the tool's
+  header, a code comment, or `--help`/note output. KEEP every decision rule, every
+  failure-mode illustration, and every `never`/`always` rule even if it is partially
+  discoverable — partial discoverability is NOT enough to delete. When in doubt, keep.
 
 ## How to investigate
 1. Read the paragraph above.
@@ -473,8 +477,9 @@ Heading path: {path_str}
 
 ## Verdict options (one per task)
 - **keep** — the paragraph is accurate, non-redundant, and needed before the tool runs.
-- **trim-to-pointer** — most of it is discoverable from the tool; keep one line that
-  names the finding and points at the verb/note.
+- **trim-to-pointer** — the trimmed text is VERBATIM restated in the tool's header / a
+  code comment / `--help` / a note; keep one line that names the finding and points at
+  the verb/note/script. If it is only partially discoverable, keep it.
 - **delete** — fully redundant or superseded; nothing of value remains.
 - **move-to-tool** — the rule belongs embedded in the tool (a new verb, a note body,
   a doc string). Write a proposal file (see below); do NOT edit the tool script
@@ -487,7 +492,10 @@ Heading path: {path_str}
    (an empty file means keep — no change).
 3. Write one verdict line per task to: {os.path.join(ctx.verdicts_dir, 'N%04d.md' % n['id'])}
    Format, one line per task:
-   `T0001 verify-accuracy: keep — one-line reason`
+   `T0001 verify-accuracy: keep — one-line reason, citing script:line for each claim verified`
+   Every verdict MUST cite the specific script filename and line numbers you checked
+   (e.g. `run-pr-gates.sh:388-389` or `open-pr.sh:7-10,72-74`). A citation is what makes
+   the verdict auditable and is what the orchestrator writes into the commit body.
 4. If any verdict is move-to-tool, write a proposal to:
    {os.path.join(ctx.proposals_dir, 'N%04d.md' % n['id'])} — one paragraph per rule: what
    rule, which verb/note should carry it, and why the tool is the right home.

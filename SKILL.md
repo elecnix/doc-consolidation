@@ -1,8 +1,8 @@
 ---
 name: doc-consolidation
-description: Shrink an oversized skill or doc file by splitting it into a DAG of paragraph nodes, verifying each via a forked subagent, and trimming anything the tool already teaches — with per-paragraph commit tracking in sqlite. Use when a skill file has grown unmanageably large and you want to shrink it systematically while moving its rules into the tool's help/notes/output.
+description: Shrink an oversized skill or doc file by splitting it into a DAG of paragraph nodes, verifying each via a fresh-context subagent, and trimming anything the tool already teaches — with per-paragraph commit tracking in sqlite. Use when a skill file has grown unmanageably large and you want to shrink it systematically while moving its rules into the tool's help/notes/output.
 license: Proprietary. All rights reserved.
-compatibility: Requires python3, git, and a pi/Claude-Code harness with forked-subagent support.
+compatibility: Requires python3, git, and a pi/Claude-Code harness with fresh-context subagent support.
 metadata:
   author: elecnix
   version: "1.0"
@@ -24,10 +24,12 @@ rules that belong **in** the tool (help text, notes, behavior), not in prose.
 ## The core idea
 
 Split the doc into a **DAG of paragraph nodes**. Assign each node a list of verification
-tasks. Execute each node's tasks with **one forked subagent** in its own git worktree. The
-subagent verifies accuracy, redundancy, and discoverability, and produces a diff. The
-orchestrator applies it (one commit per node) and records the commit id on the node's tasks
-in a local sqlite.
+tasks. Execute each node's tasks with **one fresh-context subagent** in its own git worktree
+(`context: "fresh"`, never `fork` — a forked worker inherits the orchestrator's scripts and
+once ran `apply-node.py` itself, committing to the shared branch past the verification
+gate). The subagent verifies accuracy, redundancy, and discoverability, and produces a
+diff. The orchestrator applies it (one commit per node) and records the commit id on the
+node's tasks in a local sqlite.
 
 **The shrink criterion** (from the skill's own routing test): if the orchestrator would
 discover a fact by normal use of the tool — `--help`, output, notes — the doc does not have
@@ -51,9 +53,9 @@ python3 scripts/split-skill-dag.py --skill PATH/TO/SKILL.md
 # 2. Create git worktrees for the first wave (5 in parallel)
 python3 scripts/make-worktrees.py --nodes 5
 
-# 3. For each schedulable node, spawn ONE forked subagent (context: fork, model from
-#    --model, default deepseek-v4-flash) with its brief. drive-nodes.py prints the
-#    exact spawn task:
+# 3. For each schedulable node, spawn ONE fresh-context subagent (context: "fresh",
+#    model from --model, default deepseek-v4-flash) with its brief. drive-nodes.py
+#    prints the exact spawn task:
 python3 scripts/drive-nodes.py --next 5
 
 # 4. When the wave completes, apply + commit + record each node:
