@@ -41,11 +41,11 @@ from common import Ctx
 def make_catalog(tool_name):
     """Task catalog with the tool's name substituted into the descriptions.
 
-    {disp} is a prose reference ("the fleet" / "the"), {cmd} a command
-    invocation ("fleet" / "<tool>"). Both render naturally with or without
-    a detected tool.
+    {disp} is a prose reference ("the tool"); {cmd} a command invocation
+    (the detected tool name, or "<tool>" when none is detected). Both render
+    naturally with or without a detected tool.
     """
-    disp = "the fleet" if tool_name else "the"
+    disp = "the"
     cmd = tool_name or "<tool>"
     return {
         "verify-accuracy": {
@@ -53,40 +53,39 @@ def make_catalog(tool_name):
             "description": (
                 "Check every claim in this paragraph against the current state of {disp} "
                 "tool and the skill repo. A claim is inaccurate if the tool's behavior, "
-                "verb names, defaults, env vars, file paths, or suppression windows have "
-                "changed since the paragraph was written. How to check: read the paragraph, "
-                "then read the relevant part of {disp} script (grep for the verb or name it "
-                "mentions) and run `{cmd} help <verb>` or `{cmd} note <topic>` where the "
-                "paragraph names one. Fix drift by editing the paragraph; if the paragraph "
-                "describes behavior that no longer exists, propose deletion. Do not edit "
-                "{disp} script — if the tool itself is wrong, write a move-to-tool proposal "
-                "instead."
+                "command names, defaults, env vars, file paths, or flags have changed since "
+                "the paragraph was written. How to check: read the paragraph, then read the "
+                "relevant part of {disp} script (grep for the name or command it mentions) "
+                "and run `{cmd} --help` (or read the script's header comment) where the "
+                "paragraph names a command. Fix drift by editing the paragraph; if the "
+                "paragraph describes behavior that no longer exists, propose deletion. Do "
+                "not edit {disp} script — if the tool itself is wrong, write a move-to-tool "
+                "proposal instead."
             ).format(disp=disp, cmd=cmd),
         },
         "verify-redundancy": {
             "title": "Verify this paragraph is redundant",
             "description": (
                 "The goal is to shrink SKILL.md a LOT. A paragraph is redundant if its "
-                "content is already discoverable by normal use of the tool: `{cmd} help "
-                "<verb>` output, `{cmd} note <topic>`, the script's own doc strings, or the "
-                "tool's stdout. If the orchestrator would learn it by running the tool or "
-                "reading its output/--help, the paragraph should be trimmed to a one-line "
-                "pointer or deleted. Keep only what is needed BEFORE any tool runs: how to "
-                "decide, how to report, what to delegate, and the failure modes of the "
-                "process itself. How to check: run the verb the paragraph describes and "
-                "compare what it prints with what the paragraph says. Verdict options: "
-                "keep / trim-to-pointer / delete / move-to-tool (write a proposal; do not "
-                "edit {disp} script)."
+                "content is already discoverable by normal use of the tool: `{cmd} --help` "
+                "output, the script's header comment, its code comments, or the tool's "
+                "stdout. If the orchestrator would learn it by running the tool or reading "
+                "its source/--help, the paragraph should be trimmed to a one-line pointer or "
+                "deleted. Keep only what is needed BEFORE any tool runs: how to decide, how "
+                "to report, what to delegate, and the failure modes of the process itself. "
+                "How to check: run the command the paragraph describes and compare what it "
+                "prints with what the paragraph says. Verdict options: keep / trim-to-pointer "
+                "/ delete / move-to-tool (write a proposal; do not edit {disp} script)."
             ).format(disp=disp, cmd=cmd),
         },
         "verify-discoverability": {
             "title": "Verify the content is discoverable from the tool",
             "description": (
-                "For every `{cmd} <verb>` invocation or tool behavior this paragraph "
-                "describes, run `{cmd} help <verb>` (and the verb itself where safe) and "
-                "confirm the paragraph adds information beyond what the tool prints. "
-                "Anything the tool already says should be removed from the paragraph. If the "
-                "tool does NOT say it, the paragraph may stay — or the rule should be "
+                "For every `{cmd} <subcommand>` invocation or tool behavior this paragraph "
+                "describes, run `{cmd} --help` (and the subcommand itself where safe, e.g. "
+                "--dry-run) and confirm the paragraph adds information beyond what the tool "
+                "prints. Anything the tool already says should be removed from the paragraph. "
+                "If the tool does NOT say it, the paragraph may stay — or the rule should be "
                 "embedded in the tool (write a move-to-tool proposal; do not edit {disp} "
                 "script yourself). The test: would the orchestrator find this out by normal "
                 "usage of the tool? If yes, the paragraph is discoverable and should shrink "
@@ -96,12 +95,12 @@ def make_catalog(tool_name):
         "verify-consistency": {
             "title": "Verify the paragraph agrees with the script",
             "description": (
-                "Cross-check names, defaults, and mechanics against the tool script: verb "
-                "names, note topics, env vars, file paths, defaults, suppression windows, "
-                "state locations. The doc and the script must agree. How to check: grep the "
-                "tool script for each name the paragraph uses; run the tool's selfcheck "
-                "verb where one exists. Fix any drift in the paragraph. Do not edit the "
-                "tool script — if the script is wrong, write a move-to-tool proposal."
+                "Cross-check names, defaults, and mechanics against the tool script: command "
+                "names, flags, env vars, file paths, defaults, exit codes. The doc and the "
+                "script must agree. How to check: grep the tool script for each name the "
+                "paragraph uses; run the tool's self-check where one exists. Fix any drift in "
+                "the paragraph. Do not edit the tool script — if the script is wrong, write "
+                "a move-to-tool proposal."
             ),
         },
         "verify-currency": {
@@ -466,10 +465,10 @@ Heading path: {path_str}
 1. Read the paragraph above.
 2. Search your worktree's {ctx.skill_name} for the surrounding section (grep for the
    heading) so you understand context.
-3. For every `{tool_name_for(ctx)} <verb>` / `{tool_name_for(ctx)} note <topic>` the
-   paragraph names, run: `{ctx.tool or tool_name_for(ctx)} help <verb>` and
-   `{ctx.tool or tool_name_for(ctx)} note <topic>` (and the verb itself where safe).
-   Compare what the tool prints with what the paragraph claims.
+3. For every `{tool_name_for(ctx)} <subcommand>` / tool invocation the paragraph names,
+   run: `{ctx.tool or tool_name_for(ctx)} --help` and read the script's header comment
+   (and run the subcommand itself where safe, e.g. with --dry-run). Compare what the
+   tool prints with what the paragraph claims.
 4. Grep the tool script for any name, default, env var, or path the paragraph mentions
    and check it still matches.
 5. Check `git log --oneline -10` in the doc's repo ({ctx.repo_root or 'not a git repo'})

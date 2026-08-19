@@ -49,7 +49,7 @@ ignored (the executor never reads it; the `worker` frontmatter default of `high`
 suffix to restore the agent default if verdict quality drops on a harder doc.
 
 **Brief** (one file per node, `briefs/N%04d-*.md`): contains the node's full paragraph text,
-its task list (id + title + description), the heading path, the worktree path, the fleet
+its task list (id + title + description), the heading path, the worktree path, the tool
 script path, the investigation recipe, the verdict options, and the exact output contract.
 
 **Task text** (passed to the subagent):
@@ -102,8 +102,10 @@ works unchanged:
 - **Per-node worktrees** live under `<wt-root>/<doc-slug>/N%04d` (default wt-root:
   `~/Source/doc-split-wt`), branched from the doc repo's current HEAD.
 - **The tool** (the script whose behavior the doc must not restate) is auto-detected:
-  `<repo>/scripts/fleet` first, then `~/.agents/skills/<doc-name>/scripts/<basename>`.
-  `--tool PATH` forces it; `--no-tool` disables tool-dependent checks and task kinds.
+  any executable in `<repo>/scripts/` (first one, alphabetically), then any in
+  `~/.agents/skills/<doc-name>/scripts/`. `--tool PATH` forces it; `--no-tool` disables
+  tool-dependent checks and task kinds (use it when the doc's tool is a *directory* of
+  scripts, e.g. `tools/ci/`, that `--tool` cannot name as one file).
 - **Commit identity**: the commit trailer uses git config user.name/email of the doc
   repo; `--co-author NAME` overrides.
 - **DB meta remembers** the source doc, tool, and co-author, so the apply/drive/status

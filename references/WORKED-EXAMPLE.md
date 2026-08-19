@@ -1,5 +1,8 @@
 # Worked example: orchestrate-pi-agents
 
+> This is a historical record of the first real run. "fleet" was that skill's tool —
+> substitute your own doc's tool everywhere you see it. The method is tool-agnostic.
+
 The first real use of doc-consolidation was shrinking the
 `orchestrate-pi-agents` skill (`~/.agents/skills/orchestrate-pi-agents/SKILL.md`),
 whose fleet tool (`scripts/fleet`, 920KB) carries the reasoning for every recipe in its

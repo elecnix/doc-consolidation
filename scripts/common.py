@@ -1,12 +1,9 @@
 #!/usr/bin/env python3
 """common.py — shared path/default derivation for the doc-consolidation scripts.
 
-Every script used to hardcode the orchestrate-pi-agents skill layout:
+Every script used to hardcode a single skill's layout — a fixed split worktree,
+a fixed tool script, a fixed cache dir, and a fixed worktree root.
 
-    ~/Source/orchestrate-pi-agents-split/SKILL.md           (the shared split worktree)
-    ~/.agents/skills/orchestrate-pi-agents/scripts/fleet    (the tool to verify against)
-    ~/.cache/fleet-skill-split/                             (DB + diffs + briefs + verdicts)
-    ~/Source/skill-split-wt/                                (per-node subagent worktrees)
 
 To run against any other doc, point --skill at its file and everything else derives:
 
@@ -17,9 +14,11 @@ To run against any other doc, point --skill at its file and everything else deri
   wt_dir      = <wt-root>/<slug>                            (per-node worktree checkout dir)
   branch      = "split-node-<id>" from the skill repo's current branch
 
-The tool (fleet) is resolved separately because it may live in a different repo
-(a sibling skill under ~/.agents/skills): --tool / --no-tool override the
-heuristics. The --co-author commit trailer defaults to git config user.name/email,
+The tool is resolved separately because it may live in a different repo (a sibling
+skill under ~/.agents/skills): any executable in the doc repo's `scripts/` directory
+is auto-detected, and --tool / --no-tool override the heuristics (use --no-tool when
+the doc's tool is a directory of scripts, e.g. `tools/ci/`, that --tool can't name as
+one file). The --co-author commit trailer defaults to git config user.name/email,
 so committing never leaks a hardcoded identity.
 
 Usage:
@@ -83,12 +82,29 @@ def default_db_for(skill_path):
 
 
 def tool_candidates(skill_path, repo_root):
-    """Ordered candidates for the tool script; first existing one wins."""
+    """Ordered candidates for the tool script; first existing one wins.
+
+    A doc's "tool" is the checked implementation whose help/header the doc must not
+    restate. It is auto-detected: any executable script in the doc repo's `scripts/`
+    directory (the first one, alphabetically), then any in the skill's own
+    `~/.agents/skills/<doc>/scripts/`. Pass --tool PATH to override, or --no-tool to
+    disable (e.g. when the doc's tool is a directory of scripts like `tools/ci/`).
+    """
     candidates = []
     if repo_root:
-        candidates.append(os.path.join(repo_root, "scripts", "fleet"))
+        scripts_dir = os.path.join(repo_root, "scripts")
+        if os.path.isdir(scripts_dir):
+            for name in sorted(os.listdir(scripts_dir)):
+                p = os.path.join(scripts_dir, name)
+                if os.access(p, os.X_OK) and not name.endswith((".pyc", "__pycache__")):
+                    candidates.append(p)
     slug = slugify(os.path.basename(skill_path).rsplit(".", 1)[0])
-    candidates.append(os.path.expanduser("~/.agents/skills/%s/scripts/fleet" % slug))
+    skill_scripts = os.path.expanduser("~/.agents/skills/%s/scripts" % slug)
+    if os.path.isdir(skill_scripts):
+        for name in sorted(os.listdir(skill_scripts)):
+            p = os.path.join(skill_scripts, name)
+            if os.access(p, os.X_OK) and not name.endswith((".pyc", "__pycache__")):
+                candidates.append(p)
     return candidates
 
 
