@@ -32,6 +32,7 @@ import sqlite3
 import sys
 
 from common import Ctx
+from prompt_modules import policy_text, normalize as normalize_modules
 
 
 def db_conn(ctx):
@@ -69,6 +70,19 @@ def main():
 
     conn = db_conn(ctx)
 
+    # Modules: an explicit --modules (not the default) overrides; otherwise read what
+    # split recorded in DB meta so a drive run matches the split's module selection.
+    default_mods = "trim,move-to-tool"
+    if args.modules != default_mods:
+        ctx.modules = normalize_modules(args.modules)
+    else:
+        try:
+            row = conn.execute("SELECT value FROM meta WHERE key='modules'").fetchone()
+            if row and row[0]:
+                ctx.modules = normalize_modules(row[0])
+        except sqlite3.OperationalError:
+            pass  # meta table missing (older DB) — keep ctx default
+
     if args.status:
         cur = conn.cursor()
         print("nodes:", dict(cur.execute("SELECT status, COUNT(*) FROM nodes GROUP BY status").fetchall()))
@@ -98,14 +112,9 @@ def main():
         print("Spawn ONE fresh-context subagent (context: fresh, model: %s) with this task:" % args.model)
         print()
         print("Read the brief at %s and execute it exactly." % brief)
-        print("Apply the brief's trimming policy: trim text VERBATIM restated in the tool's")
-        print("header / a code comment / --help / a note to a one-line pointer; keep every")
-        print("decision rule, failure-mode illustration, and never/always rule even if")
-        print("partially discoverable. BUT for each kept rule that is ABOUT a tool script's")
-        print("behavior, check whether the script ALREADY states it — if not, write a")
-        print("move-to-tool proposal (rule, target script + location, proposed wording, why")
-        print("the tool is the right home); do NOT edit the tool script. Bias toward proposing")
-        print("move-to-tool for rules that govern a script's behavior but live only in prose.")
+        print("Modules this run: %s." % ", ".join(ctx.modules))
+        for line in policy_text(ctx.modules).split("\n"):
+            print(line)
         print("When done, report: your verdicts, one-line reasons, and the diff path.")
         print("Every verdict line MUST cite the specific script:line verified (e.g. open-pr.sh:7-10)")
         print("-- the orchestrator writes those citations into the commit body.")

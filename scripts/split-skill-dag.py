@@ -35,6 +35,7 @@ import sys
 import time
 
 from common import Ctx
+from prompt_modules import policy_text, verdict_options_text
 
 # --------------------------------------------------------------------------- task catalog
 
@@ -371,6 +372,7 @@ def write_db(ctx, fm, nodes, edges, tasks):
         ("skill_rel", ctx.skill_rel),
         ("wt_dir", ctx.wt_dir),
         ("branch_prefix", ctx.branch_prefix),
+        ("modules", ",".join(ctx.modules)),
     ])
     # frontmatter node (id 0)
     cur.execute(
@@ -434,6 +436,9 @@ def brief_text(ctx, n, ntasks, nodes):
         "- **%s** — %s\n  %s" % (t["id"], t["title"], t["description"]) for t in ntasks
     )
     tool = ctx.tool or "(no tool detected)"
+    modules_label = ", ".join(ctx.modules)
+    policy = policy_text(ctx.modules)
+    verdict_options = verdict_options_text(ctx.modules)
     return f"""# Node {n['id']} — {n['heading'] or '(frontmatter)'}
 
 ## Your tasks (answer ALL of them; one subagent per node because they all edit the same lines)
@@ -459,18 +464,8 @@ Heading path: {path_str}
   possible, so the doc does not have to say something the orchestrator (the one USING
   the doc and the tool) will find out by reading the output or --help of the tool.
   Everything should be discoverable, in the expected location, discovered by normal usage.
-- **Trimming policy (strict) + move-to-tool:** only trim text that is VERBATIM restated
-  in the tool's header, a code comment, or `--help`/note output. KEEP every decision rule,
-  failure-mode illustration, and `never`/`always` rule even if it is partially
-  discoverable — partial discoverability is NOT enough to delete. BUT for each kept
-  decision rule, failure-mode, or `never`/`always` rule that is ABOUT a tool script's
-  behavior or invocation, check whether the script ALREADY states it in its
-  header/--help/code-comments. If it does NOT, that rule is a **move-to-tool** proposal:
-  it belongs embedded in the script so the script self-describes it and the doc can
-  later shrink to a pointer. Do not default to keep-and-stop — a rule that governs a
-  script's behavior but lives only in the doc is exactly the move-to-tool case. When in
-  doubt whether a rule is embeddable, propose it; the orchestrator decides whether to
-  implement.
+## Policy (modules: {modules_label})
+{policy}
 
 ## How to investigate
 1. Read the paragraph above.
@@ -486,16 +481,7 @@ Heading path: {path_str}
    for recent changes that may have superseded the paragraph.
 
 ## Verdict options (one per task)
-- **keep** — the paragraph is accurate, non-redundant, and needed before the tool runs.
-- **trim-to-pointer** — the trimmed text is VERBATIM restated in the tool's header / a
-  code comment / `--help` / a note; keep one line that names the finding and points at
-  the verb/note/script. If it is only partially discoverable, keep it.
-- **delete** — fully redundant or superseded; nothing of value remains.
-- **move-to-tool** — the rule is ABOUT a tool script's behavior or invocation, the
-  script does NOT already state it in its header/--help/code-comments, and it belongs
-  embedded there so the script self-describes it. Write a proposal file (see below); do
-  NOT edit the tool script yourself. Trim the doc's copy to a one-line pointer that
-  says the script's header documents why.
+{verdict_options}
 
 ## What to produce
 1. Edit {ctx.worktree_path(n['id'])}/{ctx.skill_name} — only your section's lines

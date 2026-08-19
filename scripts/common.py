@@ -138,7 +138,9 @@ class Ctx:
     """All derived paths + tool + co-author, one place. Read-only."""
 
     def __init__(self, skill_path, db, repo_root, tool, coauthor, coauthor_email, wt_root,
-                 branch_prefix, split_branch, chunk_words):
+                 branch_prefix, split_branch, chunk_words, modules=None):
+        from prompt_modules import normalize as _normalize_modules
+        self.modules = _normalize_modules(modules) if modules else list(__import__("prompt_modules").ALL_MODULES)
         self.skill_path = os.path.realpath(skill_path)   # resolve symlinks: /tmp -> /private/tmp
         self.skill_name = os.path.basename(self.skill_path)
         self.slug = doc_slug(self.skill_path)
@@ -214,6 +216,10 @@ class Ctx:
                             help="commit trailer name (default: git config user.name of the doc repo)")
         parser.add_argument("--wt-root", default=os.path.expanduser("~/Source/doc-split-wt"),
                             help="root for per-node subagent worktrees (default: ~/Source/doc-split-wt)")
+        parser.add_argument("--modules", default="trim,move-to-tool",
+                            help="comma-separated prompt modules to apply (default: trim,move-to-tool = all; "
+                                 "choices: trim, move-to-tool). A move-to-tool-only run surfaces embeddable "
+                                 "rules on a doc already trimmed in an earlier pass.")
         return parser
 
     @classmethod
@@ -236,4 +242,4 @@ class Ctx:
             if r.returncode == 0:
                 split_branch = r.stdout.strip()
         return cls(skill_path, db, repo_root, tool, coauthor, coauthor_email, args.wt_root,
-                   "split-node-", split_branch, args.chunk_words)
+                   "split-node-", split_branch, args.chunk_words, args.modules)
