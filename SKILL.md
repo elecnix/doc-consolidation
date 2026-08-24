@@ -19,7 +19,28 @@ verifying every paragraph and deleting or trimming whatever the tool already tea
 Use it when a skill or doc file has grown past roughly 10K words and much of it restates
 tool behavior — verb tables, help-text, mechanics, incident backstories. Use it when you
 want a systematic, tracked shrink rather than a hand edit. Use it when you want to surface
-rules that belong **in** the tool (help text, notes, behavior), not in prose.
+rules that belong **in** the tool (help text, notes, behavior), not in prose. Use it when you
+want to **close the loop** — surface those rules, land them in the tool's output, and shrink
+the doc to point at them (see "The full loop").
+
+## The full loop (don't stop at proposals)
+
+Shrinking the doc is only the first movement. A rule that belongs in the tool is not done
+when the proposal is written — the loop closes in three moves:
+
+1. **Propose** (this pipeline): verify the restated paragraph, write the progressive-disclosure
+   proposal, trim the doc to a one-line pointer.
+2. **Implement**: a tool-change PR edits the script to disclose the rule at the output where
+   the caller reads it, and (ideally) re-trims the doc to remove the pointer's now-redundant
+   copies. Drive one subagent per proposal; batch the trivial ones, delegate the hard ones
+   (see "Implementing proposals", below).
+3. **Re-verify the doc** once the tool lands: now that the rule is in the tool's output, the
+   pointer's "see the tool" becomes literally true — confirm the doc copy actually shrinks,
+   or the skill grows a duplicate.
+
+The doc and the tool move together. Implementing the tool without trimming the doc (or vice
+versa) leaves one half claiming the other owns the rule, and you get a doc and a tool that
+disagree about who teaches what.
 
 ## The core idea
 
@@ -34,7 +55,8 @@ node's tasks in a local sqlite.
 **The shrink criterion** (from the skill's own routing test): if the orchestrator would
 discover a fact by normal use of the tool — `--help`, output, notes — the doc does not have
 to say it. Default to deletion. A paragraph stays only if (a) it is needed before any tool
-runs, or (b) it is an illustration no verb can own.
+runs, or (b) it is an illustration no verb can own. This is the smaller motivation — the
+whole shape only pays off when you take it through **the full loop above**.
 
 ## Quick start
 
@@ -110,6 +132,45 @@ a code change with its own gates, not a docs-only fast-path. On the PRI-2201 run
 progressive-disclosure module surfaced 23 proposals across 11 nodes where a trim-only prompt had
 surfaced 0.
 
+## Implementing proposals (the tool-change phase)
+
+Once the doc is drained, the `proposals/` directory is a backlog. Driving it to land is
+where most forks stall, so this phase has its own method. The two hard-won rules:
+
+- **One subagent per proposal, one commit each, all on ONE branch.** Do not give a worker
+  several proposals and let it commit once — you lose the per-proposal review trail. Give
+  it several proposals but make it commit after *each*.
+- **Batch the trivial, delegate the hard.** A proposal that only appends a help line, a
+  note body, or a status echo is a 3-minute worker job — batch ~5 of these into one worker
+  run over related files. A proposal that adds logic (a new note topic + its trigger, a
+  parser change, a merge-tree comparison) is a single-worker or direct job. The first time
+  you let a cheap worker chew on a hard proposal, it loops and times out — pull it back and
+  do it yourself.
+
+**Parallel lanes, not one worktree.** All these edits touch the same script. Run workers in
+separate git worktrees (`git worktree add -b lane-N <base>`), each on a disjoint set of
+proposals, then merge the lanes back with `git merge` and resolve the few conflicts by hand
+(they overlap rarely — help blocks are far apart). This is what lets you do many proposals
+at once without clobbering.
+
+**Lean gates are the difference between finishing and timing out.** Running the tool's full
+test suite (or `selfcheck`, if it embeds it) after every proposal is ~2min × N and blows the
+worker's budget. Instead: `bash -n` the script after each commit (instant syntax check),
+and run the ONE full gate at the very end of the batch. A worker told "selfcheck after
+EVERY proposal" will time out at 30min on a 5-proposal batch; told "bash -n per commit, one
+selfcheck at the end", it finishes.
+
+**Triage workers that stall.** A verification worker that loops re-reading the same file is
+not "deep in thought" — it is stuck. After ~15 turns with no commit, stop it, check the
+worktree is clean, and implement that proposal yourself. This happened repeatedly on the
+hard proposals — the fix is not a bigger hammer, it is the orchestrator taking the hard
+one back and doing it by hand.
+
+**The commit must carry the proof.** The commit body should have the verdict lines (with
+`script:line`s) that motivated the change, so a future reader can audit why a line was
+added without opening the brief. `apply-node.py` now does this for the doc side; do the
+same when you author tool commits by hand.
+
 ## Deliverables
 
 When the DAG is fully drained you get:
@@ -117,11 +178,16 @@ When the DAG is fully drained you get:
 - A **much smaller doc** (worked example cut 38% of words) whose remaining paragraphs were
   each verified accurate and non-redundant.
 - A **sqlite tracking DB** linking every node's task to the commit that resolved it.
-- A **`proposals/` directory** of `progressive-disclosure` rules that belong in the tool, for a
-  separate tool subagent to implement.
+- A **`proposals/` directory** of `progressive-disclosure` rules that belong in the tool.
+- **Auditable commits**: every trim commit carries its verdict lines (with `script:line`
+  citations) in the body, so the DAG's reasoning is recoverable from `git log` alone.
+- When you run the implementation phase, a **tool PR that discloses the rules** and a
+  **re-trimmed doc** — the loop closed (see "The full loop").
 - The decision-guidance core — "what you need before any tool runs" — kept intact.
 
-See [the worked example](references/WORKED-EXAMPLE.md) for the orchestrate-pi-agents run.
+See [the worked example](references/WORKED-EXAMPLE.md) for the orchestrate-pi-agents run
+documented end-to-end (its numbers are historical; the implementation-phase refinements in
+"The full loop" / "Implementing proposals" landed after that run).
 
 ## Files
 
