@@ -132,10 +132,13 @@ def apply_diff(ctx, diff_path):
     return False, "git apply failed: %s" % r.stderr.strip()[:200]
 
 
-def commit_node(ctx, node_id, heading, task_ids, dry_run):
+def commit_node(ctx, node_id, heading, task_ids, dry_run, verdict_lines=None):
     """Commit the doc change in the repo. Returns (sha|None, msg).
 
     With dry_run=True the change is left staged but never committed.
+    verdict_lines: list of one-line "T#### kind: verdict — reason" strings from
+    read_verdicts(); written to the commit body (with the script:line citations)
+    so the trim is auditable from git alone.
     """
     repo = ctx.repo_root
     if not repo:
@@ -148,9 +151,12 @@ def commit_node(ctx, node_id, heading, task_ids, dry_run):
     if r.returncode:
         return None, "git add failed: %s" % r.stderr
     msg = "skill-split: node %d %s (%s)" % (node_id, heading[:60], ",".join(task_ids))
+    if verdict_lines:
+        body = "Verdicts:\n" + "\n".join("  " + l for l in verdict_lines)
+        msg += "\n\n" + body
     trailer = ctx.coauthor_trailer()
     if trailer:
-        msg += "\n\n%s" % trailer
+        msg += "\n\n" + trailer
     if dry_run:
         return "DRY-RUN", "would commit: %s" % msg
     r = git(repo, "-c", "core.editor=false", "commit", "-m", msg, "--", ctx.skill_rel)
@@ -181,6 +187,18 @@ def read_verdicts(verdicts_path):
     return out
 
 
+def format_verdicts(verdicts_path):
+    """Build the ordered one-line-per-task list for the commit body."""
+    verdicts = read_verdicts(verdicts_path)
+    if not verdicts:
+        return None
+    lines = []
+    for tid in sorted(verdicts):
+        kind, verdict, reason = verdicts[tid]
+        lines.append("%s %s: %s — %s" % (tid, kind, verdict, reason))
+    return lines
+
+
 def meta_row(conn, key, default=""):
     r = conn.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
     return r[0] if r else default
@@ -202,6 +220,7 @@ def ctx_from_db_meta(conn, db, args):
         tool = meta_row(conn, "tool") or None
     if not args.co_author:
         coauthor = meta_row(conn, "coauthor") or None
+    modules = meta_row(conn, "modules") or None
     if not skill or not os.path.exists(skill):
         sys.exit("no --skill given and DB meta has no source: %s" % db)
     if tool and not os.path.exists(tool):
@@ -209,6 +228,7 @@ def ctx_from_db_meta(conn, db, args):
     return Ctx.from_args(argparse.Namespace(
         skill=skill, db=db, tool=tool or None, no_tool=bool(no_tool),
         co_author=coauthor or None, wt_root=args.wt_root, chunk_words=500,
+        modules=modules,
     ))
 
 
@@ -289,7 +309,9 @@ def main():
         conn.commit()
         sys.exit(1)
 
-    sha, msg = commit_node(ctx, args.node_id, node["heading"], task_ids, args.dry_run)
+    sha, msg = commit_node(
+        ctx, args.node_id, node["heading"], task_ids, args.dry_run,
+        verdict_lines=format_verdicts(verdicts_path))
     if sha is None and msg.startswith("commit failed"):
         print("COMMIT FAIL node %d: %s" % (args.node_id, msg))
         sys.exit(1)
