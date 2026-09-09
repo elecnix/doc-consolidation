@@ -463,10 +463,87 @@ def brief_text(ctx, n, ntasks, nodes):
     task_lines = "\n".join(
         "- **%s** — %s\n  %s" % (t["id"], t["title"], t["description"]) for t in ntasks
     )
-    tool = ctx.tool or "(no tool detected)"
     modules_label = ", ".join(ctx.modules)
     policy = policy_text(ctx.modules, tool=bool(ctx.tool))
     verdict_options = verdict_options_text(ctx.modules)
+    has_tool = bool(ctx.tool)
+    deslop = "deslop" in ctx.modules
+    trimming = "trim" in ctx.modules or "progressive-disclosure" in ctx.modules
+
+    # Context: every tool-facing line is dropped when there is no tool, where it used to
+    # render as literal nonsense ("The tool: (no tool detected)", then "embed its rules
+    # into the tool CLI").
+    context_lines = []
+    if has_tool:
+        context_lines.append(
+            "- The tool (the checked implementation of the recipes): %s" % ctx.tool)
+    if trimming and has_tool:
+        context_lines.append(
+            "- The goal: shrink %s a LOT. Embed its rules into the tool CLI as much as\n"
+            "  possible, so the doc does not have to say something the orchestrator (the one\n"
+            "  USING the doc and the tool) will find out by reading the output or --help of\n"
+            "  the tool. Everything should be discoverable, in the expected location,\n"
+            "  discovered by normal usage." % ctx.skill_name)
+    elif trimming:
+        context_lines.append(
+            "- The goal: shrink %s a LOT. This doc has no tool script, so no rule moves into\n"
+            "  a CLI: cut what the doc restates about itself, and keep what a reader needs\n"
+            "  before acting." % ctx.skill_name)
+    if deslop:
+        context_lines.append(
+            "- The deslop goal: reword the prose to the house standard. The facts, the\n"
+            "  numbers, and the size of this paragraph stay as they are.")
+    context_block = "\n".join(context_lines) or "- (no tool detected; the goal is the selected module's own)"
+
+    steps = [
+        "Read the paragraph above.",
+        "Search your worktree's %s for the surrounding section (grep for the heading) so "
+        "you understand context." % ctx.skill_name,
+    ]
+    if has_tool:
+        steps.append(
+            "For every `%s <subcommand>` / tool invocation the paragraph names, run "
+            "`%s --help` and read the script's header comment (and run the subcommand "
+            "itself where safe, e.g. with --dry-run). Compare what the tool prints with "
+            "what the paragraph claims." % (tool_name_for(ctx), ctx.tool))
+        steps.append(
+            "Grep the tool script for any name, default, env var, or path the paragraph "
+            "mentions and check it still matches.")
+    if deslop:
+        steps.append(
+            "Work the \"Vale alerts in your line range\" section above, one alert at a time. "
+            "Then measure the fragment: copy this paragraph's before text and its after "
+            "text into two `.md` files and run vale on each, per the recipe in the policy.")
+    steps.append(
+        "Check `git log --oneline -10` in the doc's repo (%s) for recent changes that may "
+        "have superseded the paragraph." % (ctx.repo_root or "not a git repo"))
+    investigate = "\n".join("%d. %s" % (i + 1, s) for i, s in enumerate(steps))
+
+    ex_id = ntasks[0]["id"] if ntasks else "T0001"
+    ex_kind = ntasks[0]["kind"] if ntasks else "verify-accuracy"
+    cite_lines = []
+    if has_tool:
+        cite_lines.append(
+            "   A verdict about a CLAIM must cite the specific script filename and line\n"
+            "   numbers you checked (e.g. `run-pr-gates.sh:388-389` or `open-pr.sh:7-10,72-74`).")
+    if deslop:
+        cite_lines.append(
+            "   A `deslop` / `slop_refused` verdict cites the vale RULE NAME and the PHRASE,\n"
+            "   plus the fragment-identity `vale N->M` pair. A script:line has nothing to\n"
+            "   point at for a wording change.")
+    cite_lines.append(
+        "   The citation is what makes the verdict auditable, and it is what the\n"
+        "   orchestrator writes into the commit body.")
+    citation_block = "\n".join(cite_lines)
+
+    produce_extra = ""
+    if "progressive-disclosure" in ctx.modules:
+        produce_extra = (
+            "4. If any verdict is progressive-disclosure, write a proposal to:\n"
+            "   %s — one paragraph per rule: what\n"
+            "   rule, which verb/note should carry it, and why the tool is the right home.\n"
+            % os.path.join(ctx.proposals_dir, "N%04d.md" % n["id"]))
+    last_step = 5 if produce_extra else 4
     return f"""# Node {n['id']} — {n['heading'] or '(frontmatter)'}
 
 ## Your tasks (answer ALL of them; one subagent per node because they all edit the same lines)
@@ -487,26 +564,13 @@ Heading path: {path_str}
   original file and may have shifted after earlier trims.
 
 ## Context you need
-- The tool (the checked implementation of the recipes): {tool}
-- The goal: shrink {ctx.skill_name} a LOT. Embed its rules into the tool CLI as much as
-  possible, so the doc does not have to say something the orchestrator (the one USING
-  the doc and the tool) will find out by reading the output or --help of the tool.
-  Everything should be discoverable, in the expected location, discovered by normal usage.
+{context_block}
+
 ## Policy (modules: {modules_label})
 {policy}
 
 ## How to investigate
-1. Read the paragraph above.
-2. Search your worktree's {ctx.skill_name} for the surrounding section (grep for the
-   heading) so you understand context.
-3. For every `{tool_name_for(ctx)} <subcommand>` / tool invocation the paragraph names,
-   run: `{ctx.tool or tool_name_for(ctx)} --help` and read the script's header comment
-   (and run the subcommand itself where safe, e.g. with --dry-run). Compare what the
-   tool prints with what the paragraph claims.
-4. Grep the tool script for any name, default, env var, or path the paragraph mentions
-   and check it still matches.
-5. Check `git log --oneline -10` in the doc's repo ({ctx.repo_root or 'not a git repo'})
-   for recent changes that may have superseded the paragraph.
+{investigate}
 
 ## Verdict options (one per task)
 {verdict_options}
@@ -518,14 +582,9 @@ Heading path: {path_str}
    (an empty file means keep — no change).
 3. Write one verdict line per task to: {os.path.join(ctx.verdicts_dir, 'N%04d.md' % n['id'])}
    Format, one line per task:
-   `T0001 verify-accuracy: keep — one-line reason, citing script:line for each claim verified`
-   Every verdict MUST cite the specific script filename and line numbers you checked
-   (e.g. `run-pr-gates.sh:388-389` or `open-pr.sh:7-10,72-74`). A citation is what makes
-   the verdict auditable and is what the orchestrator writes into the commit body.
-4. If any verdict is progressive-disclosure, write a proposal to:
-   {os.path.join(ctx.proposals_dir, 'N%04d.md' % n['id'])} — one paragraph per rule: what
-   rule, which verb/note should carry it, and why the tool is the right home.
-5. Report back: your verdicts, a one-line reason each, and the diff path.
+   `{ex_id} {ex_kind}: keep — one-line reason with its citation`
+{citation_block}
+{produce_extra}{last_step}. Report back: your verdicts, a one-line reason each, and the diff path.
 
 ## Rules
 - Edit ONLY your worktree's {ctx.skill_name}. Never touch the shared split worktree
