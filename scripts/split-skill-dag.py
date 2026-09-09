@@ -30,6 +30,7 @@ recorded task progress — use it only to rebuild from scratch).
 """
 
 import argparse
+import json
 import os
 import re
 import sqlite3
@@ -419,6 +420,76 @@ def write_db(ctx, fm, nodes, edges, tasks):
     conn.close()
 
 
+# --------------------------------------------------------------------------- vale alerts
+
+def run_vale(path):
+    """Return vale's alerts for one file as a flat list, or None when it could not run.
+
+    None means "no measurement" (binary missing, no JSON, unparsable) and the brief says
+    so; an empty list means vale ran and found nothing, which is itself suspect. Never
+    pass --glob with an explicit file path: --glob is a directory-walk filter, and on a
+    path it does not match vale prints `{}` and exits 0. The file must end in .md.
+
+    vale exits 1 whenever it finds alerts, so the status is never checked -- the JSON is
+    the only signal, matching resolve_tool()'s treatment of an optional dependency.
+    """
+    try:
+        r = subprocess.run(["vale", "--output=JSON", path], capture_output=True, text=True)
+    except OSError:
+        return None
+    out = (r.stdout or "").strip()
+    if not out:
+        return None
+    try:
+        data = json.loads(out)
+    except ValueError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    alerts = []
+    for v in data.values():
+        if isinstance(v, list):
+            alerts.extend(a for a in v if isinstance(a, dict))
+    return alerts
+
+
+def alerts_in_range(alerts, lo, hi):
+    """The alerts anchored inside [lo, hi], ordered by line then column. None passes through.
+
+    Line is the ABSOLUTE line in the file and, for a block-level rule, the FIRST line of a
+    match that can run past hi. Anchoring on it is what keeps the slices a true partition:
+    every alert lands in exactly one node.
+    """
+    if alerts is None:
+        return None
+    out = [a for a in alerts if lo <= (a.get("Line") or 0) <= hi]
+    return sorted(out, key=lambda a: ((a.get("Line") or 0), ((a.get("Span") or [0])[0])))
+
+
+def render_alerts(alerts, lo, hi):
+    """The brief's "Vale alerts in your line range" body."""
+    if alerts is None:
+        return ("vale produced no measurement for this run (the binary is missing, or it\n"
+                "printed no JSON). That is a CONTROL FAILURE, not a clean doc: report it and\n"
+                "stop, rather than inventing your own slop judgement over this paragraph.")
+    head = ("Every alert vale raised inside lines %d-%d of the original file. Answer these and\n"
+            "ONLY these. Vale skips code fences and masks inline `code` spans with `*` of the\n"
+            "same length, so a match can read as asterisks -- find the text by line and column\n"
+            "in your worktree's copy, never by grepping the match string. A block-level alert\n"
+            "is anchored at its FIRST line, so its match can run past your range." % (lo, hi))
+    if not alerts:
+        return head + "\n\n(no alerts in this range: the verdict is `keep`, and say the range was clean.)"
+    rows = []
+    for a in alerts:
+        match = (a.get("Match") or "").replace("\n", " / ")
+        if len(match) > 120:
+            match = match[:117] + "..."
+        span = a.get("Span") or [0, 0]
+        rows.append('- L%s c%s %s -- match: "%s"\n  %s'
+                    % (a.get("Line"), span[0], a.get("Check"), match, a.get("Message") or ""))
+    return head + "\n\n" + "\n".join(rows)
+
+
 # --------------------------------------------------------------------------- briefs
 
 def slugify(s):
@@ -435,12 +506,41 @@ def write_briefs(ctx, nodes, tasks, fm):
                   "chunk": 0, "total_chunks": 1, "start_line": 1, "end_line": 4,
                   "word_count": words_of([fm.get("description", "")]),
                   "content": fm.get("description", "")}] + nodes
+    # One vale run per doc, over the snapshot whose coordinates the node ranges were
+    # computed from. Only the deslop module reads them, so nothing else pays for it.
+    alerts = None
+    if "deslop" in ctx.modules:
+        alerts = run_vale(ctx.orig_path)
+        report_vale(alerts, all_nodes, ctx.orig_path)
     for n in all_nodes:
         ntasks = by_node.get(n["id"], [])
         fname = "N%04d-%s.md" % (n["id"], slugify(n["heading"]))
+        node_alerts = alerts_in_range(alerts, n["start_line"], n["end_line"])
         with open(os.path.join(ctx.briefs_dir, fname), "w", encoding="utf-8") as f:
-            f.write(brief_text(ctx, n, ntasks, all_nodes))
+            f.write(brief_text(ctx, n, ntasks, all_nodes, node_alerts))
     return len(all_nodes)
+
+
+def report_vale(alerts, all_nodes, path):
+    """Print what vale measured, including the alerts that fall in no node's range.
+
+    Three spans belong to no node -- the heading line of a chunked section, everything
+    before the first heading, and frontmatter past line 4 -- so an unreported bucket
+    would drop those alerts silently.
+    """
+    if alerts is None:
+        print("  vale: no measurement (binary missing or no JSON) -- every brief carries a "
+              "CONTROL FAILURE note instead of an alert list")
+        return
+    covered = set()
+    for n in all_nodes:
+        covered.update(range(n["start_line"], n["end_line"] + 1))
+    assigned = sum(1 for a in alerts if (a.get("Line") or 0) in covered)
+    print("  vale: %d alerts on %s (%d assigned to a node, %d in no node's range)"
+          % (len(alerts), os.path.basename(path), assigned, len(alerts) - assigned))
+    if not alerts:
+        print("  vale: ZERO alerts on the whole doc -- a control failure until proved "
+              "otherwise (a non-.md name, or --glob with a file path, prints {} and exits 0)")
 
 
 def heading_path(nodes, n):
@@ -455,7 +555,7 @@ def heading_path(nodes, n):
     return path
 
 
-def brief_text(ctx, n, ntasks, nodes):
+def brief_text(ctx, n, ntasks, nodes, node_alerts=None):
     loc = "lines %d-%d" % (n["start_line"], n["end_line"]) if n["kind"] != "frontmatter" else "frontmatter"
     path = heading_path(nodes, n)
     path_str = " > ".join(h for _, h in path) if path else "(top level)"
@@ -519,6 +619,11 @@ def brief_text(ctx, n, ntasks, nodes):
         "have superseded the paragraph." % (ctx.repo_root or "not a git repo"))
     investigate = "\n".join("%d. %s" % (i + 1, s) for i, s in enumerate(steps))
 
+    alerts_block = ""
+    if deslop:
+        alerts_block = "\n## Vale alerts in your line range\n%s\n" % render_alerts(
+            node_alerts, n["start_line"], n["end_line"])
+
     ex_id = ntasks[0]["id"] if ntasks else "T0001"
     ex_kind = ntasks[0]["kind"] if ntasks else "verify-accuracy"
     cite_lines = []
@@ -555,7 +660,7 @@ Heading path: {path_str}
 ```
 {n['content']}
 ```
-
+{alerts_block}
 ## Your worktree
 - Your worktree: {wt} (branch {ctx.worktree_branch(n['id'])}), created from the current
   split-branch HEAD before you started. The skill file in YOUR worktree is
