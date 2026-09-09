@@ -14,6 +14,11 @@ To run against any other doc, point --skill at its file and everything else deri
   wt_dir      = <wt-root>/<slug>                            (per-node worktree checkout dir)
   branch      = "split-node-<id>" from the skill repo's current branch
 
+The writing standard for a reword (the deslop module) resolves the same way: an explicit
+--style-doc (repeatable) wins, else the doc repo's own AGENTS.md / CLAUDE.md. With neither,
+a worker's only authority is vale's alert list, which turns a reword into a punctuation
+rewrite -- so split refuses to run the deslop module until one is named.
+
 The tool is resolved separately because it may live in a different repo (a sibling
 skill under ~/.agents/skills): any executable in the doc repo's `scripts/` directory
 is auto-detected, and --tool / --no-tool override the heuristics (use --no-tool when
@@ -120,6 +125,41 @@ def resolve_tool(skill_path, repo_root, explicit, no_tool):
     return None
 
 
+STYLE_DOC_NAMES = ("AGENTS.md", "CLAUDE.md")
+
+
+def resolve_style_docs(repo_root, explicit):
+    """The writing standard a reword must hold, most specific first.
+
+    An explicit --style-doc wins (repeatable, or one comma-separated string when it comes
+    back from the DB meta). Otherwise the doc repo's own AGENTS.md / CLAUDE.md, deduped by
+    realpath because CLAUDE.md is usually a symlink to AGENTS.md. Returns [] when neither
+    exists: no named authority means vale's alert list is the only standard the worker has.
+    """
+    if isinstance(explicit, str):
+        explicit = [p for p in explicit.split(",") if p.strip()]
+    out = []
+    seen = set()
+
+    def add(p):
+        rp = os.path.realpath(p)
+        if os.path.isfile(rp) and rp not in seen:
+            seen.add(rp)
+            out.append(os.path.abspath(p))
+
+    if explicit:
+        for p in explicit:
+            p = os.path.expanduser(p.strip())
+            if not os.path.isfile(os.path.realpath(p)):
+                raise SystemExit("--style-doc not found: %s" % p)
+            add(p)
+        return out
+    if repo_root:
+        for name in STYLE_DOC_NAMES:
+            add(os.path.join(repo_root, name))
+    return out
+
+
 def coauthor_from_git(skill_path):
     """(name, email) from git config of the doc's repo (falls back to global).
 
@@ -138,9 +178,10 @@ class Ctx:
     """All derived paths + tool + co-author, one place. Read-only."""
 
     def __init__(self, skill_path, db, repo_root, tool, coauthor, coauthor_email, wt_root,
-                 branch_prefix, split_branch, chunk_words, modules=None):
+                 branch_prefix, split_branch, chunk_words, modules=None, style_docs=None):
         from prompt_modules import normalize as _normalize_modules
         self.modules = _normalize_modules(modules) if modules else list(__import__("prompt_modules").ALL_MODULES)
+        self.style_docs = resolve_style_docs(repo_root, style_docs)
         self.skill_path = os.path.realpath(skill_path)   # resolve symlinks: /tmp -> /private/tmp
         self.skill_name = os.path.basename(self.skill_path)
         self.slug = doc_slug(self.skill_path)
@@ -217,9 +258,14 @@ class Ctx:
         parser.add_argument("--wt-root", default=os.path.expanduser("~/Source/doc-split-wt"),
                             help="root for per-node subagent worktrees (default: ~/Source/doc-split-wt)")
         parser.add_argument("--modules", default="trim,progressive-disclosure",
-                            help="comma-separated prompt modules to apply (default: trim,progressive-disclosure = all; "
-                                 "choices: trim, progressive-disclosure). A progressive-disclosure-only run surfaces embeddable "
-                                 "rules on a doc already trimmed in an earlier pass.")
+                            help="comma-separated prompt modules to apply (default: trim,progressive-disclosure; "
+                                 "choices: trim, progressive-disclosure, deslop — deslop is opt-in). A "
+                                 "progressive-disclosure-only run surfaces embeddable rules on a doc already "
+                                 "trimmed in an earlier pass; a deslop run rewords prose vale flags as "
+                                 "machine-written and changes no facts.")
+        parser.add_argument("--style-doc", action="append", default=None, metavar="PATH",
+                            help="writing standard a deslop reword must hold, repeatable (default: the doc "
+                                 "repo's AGENTS.md / CLAUDE.md). With none, --modules deslop refuses to split.")
         return parser
 
     @classmethod
@@ -242,4 +288,5 @@ class Ctx:
             if r.returncode == 0:
                 split_branch = r.stdout.strip()
         return cls(skill_path, db, repo_root, tool, coauthor, coauthor_email, args.wt_root,
-                   "split-node-", split_branch, args.chunk_words, args.modules)
+                   "split-node-", split_branch, args.chunk_words, args.modules,
+                   getattr(args, "style_doc", None))

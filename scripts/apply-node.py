@@ -228,7 +228,7 @@ def ctx_from_db_meta(conn, db, args):
     return Ctx.from_args(argparse.Namespace(
         skill=skill, db=db, tool=tool or None, no_tool=bool(no_tool),
         co_author=coauthor or None, wt_root=args.wt_root, chunk_words=500,
-        modules=modules,
+        modules=modules, style_doc=meta_row(conn, "style_docs") or None,
     ))
 
 

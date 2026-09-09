@@ -402,6 +402,7 @@ def write_db(ctx, fm, nodes, edges, tasks):
         ("wt_dir", ctx.wt_dir),
         ("branch_prefix", ctx.branch_prefix),
         ("modules", ",".join(ctx.modules)),
+        ("style_docs", ",".join(ctx.style_docs)),
     ])
     # frontmatter node (id 0)
     cur.execute(
@@ -624,6 +625,20 @@ def brief_text(ctx, n, ntasks, nodes, node_alerts=None):
         alerts_block = "\n## Vale alerts in your line range\n%s\n" % render_alerts(
             node_alerts, n["start_line"], n["end_line"])
 
+    style_block = ""
+    if deslop:
+        if ctx.style_docs:
+            style_block = (
+                "\n## Writing standard (read it before you reword anything)\n"
+                + "\n".join("- %s" % p for p in ctx.style_docs)
+                + "\nOpen it and hold its rules while you edit. It comes before every vale rule.\n")
+        else:
+            style_block = (
+                "\n## Writing standard\n"
+                "NONE for this run: no --style-doc was passed and the doc's repo has no\n"
+                "AGENTS.md or CLAUDE.md. Refuse EVERY punctuation, phrasing and naming alert\n"
+                "and report them unacted -- do not guess the house voice.\n")
+
     ex_id = ntasks[0]["id"] if ntasks else "T0001"
     ex_kind = ntasks[0]["kind"] if ntasks else "verify-accuracy"
     cite_lines = []
@@ -660,7 +675,7 @@ Heading path: {path_str}
 ```
 {n['content']}
 ```
-{alerts_block}
+{alerts_block}{style_block}
 ## Your worktree
 - Your worktree: {wt} (branch {ctx.worktree_branch(n['id'])}), created from the current
   split-branch HEAD before you started. The skill file in YOUR worktree is
@@ -711,12 +726,27 @@ def main():
     ap = argparse.ArgumentParser(description="Split a skill markdown file into a DAG of paragraph nodes in sqlite.")
     Ctx.add_args(ap)
     ap.add_argument("--force", action="store_true")
+    ap.add_argument("--allow-no-style-doc", action="store_true",
+                    help="split with --modules deslop even though no writing standard was found; "
+                         "every brief then tells its worker to refuse every punctuation, phrasing "
+                         "and naming alert")
     ap.add_argument("--briefs-only", action="store_true", help="regenerate briefs from the current skill without touching the DB")
     ap.add_argument("--next", type=int, default=0, help="print the next N schedulable nodes and exit")
     args = ap.parse_args()
     ctx = Ctx.from_args(args)
     ctx.force = args.force
     ctx.ensure_dirs()
+
+    # A reword with no named writing standard has vale's alert list as its only authority,
+    # and 38-49% of the alerts on this corpus are EmDashUsage. That run is a punctuation
+    # rewrite, so it does not start by accident.
+    if "deslop" in ctx.modules and not ctx.style_docs and not args.allow_no_style_doc:
+        sys.exit(
+            "--modules deslop needs a writing standard: no --style-doc given, and no "
+            "AGENTS.md / CLAUDE.md in %s.\n"
+            "Pass --style-doc PATH, or --allow-no-style-doc to split anyway (every brief "
+            "then tells its worker to refuse every punctuation, phrasing and naming alert)."
+            % (ctx.repo_root or "the doc's directory"))
 
     fm, lines, body_start = parse_skill(ctx.skill_path)
     sections = build_sections(lines, body_start)
@@ -748,6 +778,8 @@ def main():
     print("  briefs: %d -> %s" % (n_briefs, ctx.briefs_dir))
     print("  original snapshot: %s" % ctx.orig_path)
     print("  tool: %s" % (ctx.tool or "(none)"))
+    if "deslop" in ctx.modules:
+        print("  style docs: %s" % (", ".join(ctx.style_docs) or "(none — every style alert is refused)"))
 
     if args.next:
         conn = sqlite3.connect(ctx.db)
