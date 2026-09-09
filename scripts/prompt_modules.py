@@ -10,8 +10,10 @@ Modules:
   situation the rule governs (--help for invocation, the failure output for
   failure modes, the status output for status) — not in a header comment.
 
-The base (accuracy/consistency/currency checks, script:line citations, keep-if-
-cross-script-orchestration) always applies; it is not a selectable module.
+The base (accuracy/consistency/currency checks) always applies; it is not a
+selectable module. Its `script:line` citation demand is added only when the doc has
+a tool script to cite — policy_text(modules, tool=False) drops it, because on a
+tool-free doc there is nothing to point at.
 
 Used by split-skill-dag.py (baked into the brief) and drive-nodes.py (printed in
 the spawn task). split records the selected modules in the DB meta table so
@@ -21,11 +23,14 @@ drive-nodes reads them back without a flag.
 ALL_MODULES = ["trim", "progressive-disclosure"]
 
 BASE = (
-    "**Always:** verify accuracy and consistency against the tool script — cite the\n"
-    "specific `script:line` for every claim you checked (e.g. `run-pr-gates.sh:388-389`).\n"
-    "Keep a rule in the doc ONLY if it is genuine cross-script orchestration no single\n"
-    "script can self-describe (e.g. 'launch Step 3 in the foreground, Steps 4-5\n"
-    "alongside' — that is about the wave, not one script)."
+    "**Always:** verify accuracy and consistency — every claim the doc makes must still\n"
+    "be true, and the doc must not contradict itself."
+)
+
+BASE_TOOL = (
+    "Check every claim against the tool script and cite the specific `script:line` you\n"
+    "checked (e.g. `run-pr-gates.sh:388-389`). The citation is what makes the verdict\n"
+    "auditable."
 )
 
 TRIM = (
@@ -37,6 +42,9 @@ TRIM = (
     "rule in one command.) KEEP every decision rule, failure-mode illustration, and\n"
     "`never`/`always` rule even if it is partially discoverable — partial\n"
     "discoverability is NOT enough to delete. When in doubt, keep.\n"
+    "Keep a rule in the doc ONLY if it is genuine cross-script orchestration no single\n"
+    "script can self-describe (e.g. 'launch Step 3 in the foreground, Steps 4-5\n"
+    "alongside' — that is about the wave, not one script).\n"
     "Verdicts this module adds: **trim-to-pointer** (verbatim-restated → one line that\n"
     "says `run <script> --help` for it), **delete** (fully redundant or superseded)."
 )
@@ -91,9 +99,17 @@ def normalize(modules_arg):
     return out
 
 
-def policy_text(modules):
-    """Assemble the policy block: base + each selected module."""
-    parts = [BASE] + [MODULES[m] for m in modules if m in MODULES]
+def policy_text(modules, tool=True):
+    """Assemble the policy block: base + each selected module.
+
+    tool=False drops the `script:line` citation demand. A --no-tool run (or a doc whose
+    tool is a directory of scripts) has no script line to cite, and the demand then
+    contradicts every verdict the worker can honestly write.
+    """
+    parts = [BASE]
+    if tool:
+        parts.append(BASE_TOOL)
+    parts += [MODULES[m] for m in modules if m in MODULES]
     return "\n\n".join(parts)
 
 

@@ -437,7 +437,7 @@ def brief_text(ctx, n, ntasks, nodes):
     )
     tool = ctx.tool or "(no tool detected)"
     modules_label = ", ".join(ctx.modules)
-    policy = policy_text(ctx.modules)
+    policy = policy_text(ctx.modules, tool=bool(ctx.tool))
     verdict_options = verdict_options_text(ctx.modules)
     return f"""# Node {n['id']} — {n['heading'] or '(frontmatter)'}
 

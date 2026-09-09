@@ -113,11 +113,15 @@ def main():
         print()
         print("Read the brief at %s and execute it exactly." % brief)
         print("Modules this run: %s." % ", ".join(ctx.modules))
-        for line in policy_text(ctx.modules).split("\n"):
+        for line in policy_text(ctx.modules, tool=bool(ctx.tool)).split("\n"):
             print(line)
         print("When done, report: your verdicts, one-line reasons, and the diff path.")
-        print("Every verdict line MUST cite the specific script:line verified (e.g. open-pr.sh:7-10)")
-        print("-- the orchestrator writes those citations into the commit body.")
+        if ctx.tool:
+            print("Every verdict line MUST cite the specific script:line verified (e.g. open-pr.sh:7-10)")
+            print("-- the orchestrator writes those citations into the commit body.")
+        else:
+            print("This doc has no tool script, so a verdict cites what it checked in the doc")
+            print("itself -- the orchestrator writes those citations into the commit body.")
         print()
 
 
