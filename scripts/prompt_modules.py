@@ -9,6 +9,9 @@ Modules:
   progressive-disclosure  — disclose rules at the output where the tool REPORTS the
   situation the rule governs (--help for invocation, the failure output for
   failure modes, the status output for status) — not in a header comment.
+  deslop        — reword prose a vale ai-tells alert flags as machine-written,
+  bounded to the node's own line range and to the alerts the brief lists. The doc
+  repo's own writing standard comes first; the alert count is never the goal.
 
 The base (accuracy/consistency/currency checks) always applies; it is not a
 selectable module. Its `script:line` citation demand is added only when the doc has
@@ -20,7 +23,7 @@ the spawn task). split records the selected modules in the DB meta table so
 drive-nodes reads them back without a flag.
 """
 
-ALL_MODULES = ["trim", "progressive-disclosure"]
+ALL_MODULES = ["trim", "progressive-disclosure", "deslop"]
 
 BASE = (
     "**Always:** verify accuracy and consistency — every claim the doc makes must still\n"
@@ -82,7 +85,103 @@ PROGRESSIVE_DISCLOSURE = (
     "there)."
 )
 
-MODULES = {"trim": TRIM, "progressive-disclosure": PROGRESSIVE_DISCLOSURE}
+DESLOP = """**Deslop module:** your brief's "Vale alerts in your line range" section lists
+every alert vale raised inside YOUR node's lines. Answer those and ONLY those — never edit
+another node's paragraph to clear an alert, even where the same phrase appears there;
+another subagent owns those lines and you will collide with it.
+
+**Answer each alert, do not obey it.** An `EmDashUsage` alert points at one em dash.
+Sometimes that dash does read as machine-written. Where it carries the doc's own bullet
+format, it does not, and you refuse the alert. Judge each alert against the sentence in
+front of you, and aim at prose a human would have written.
+
+**These rule families are PRESUMED REFUSED on this corpus**, because they fire on the
+house voice, not on machine writing: `EmDashUsage`, `SemicolonUsage`, `NounString`,
+`BareHolds`, `Figurative*` (Carries/Owns/Lands/Stays/Wins/Surfaces),
+`AnthropomorphicCognition`, `SentenceStartRepetition`. Do not remove an em dash, a
+semicolon, or a named compound term to clear an alert. Act on one of these ONLY when the
+sentence is separately wrong (it hides the main point, buries two ideas, or goes passive),
+and say which. Record the whole presumed-refused set on ONE verdict line:
+`slop_refused: house-style (EmDashUsage x6, NounString x1)` — never one line per alert.
+
+**A named term is never reworded to satisfy a vale rule.** `NounString` on a named term
+(`the switch key owner id`, `the provider key test verdict`) is refused by definition: the
+noun stack IS the name, and "rewrite the stack as a phrase" destroys the grep. Same for
+`BareHolds` on `the config store holds ...`, and for the `Figurative*` rules on a verb the
+doc has already established.
+
+**The doc repo's own writing standard comes first.** Your brief's "Writing standard"
+section names the style doc for this run. Open it and hold its rules while you edit: main
+point first, one idea per sentence, short words, active voice, cut filler, name things in
+the doc's own vocabulary. If your brief names NO style doc, refuse EVERY punctuation,
+phrasing, and naming alert and report them unacted — do not guess the house voice.
+
+**NEVER rewrite quoted material:** error strings, log lines, command output, provider
+responses, and anything inside a code fence. Paraphrasing destroys its evidential value.
+Vale skips code fences and masks inline `code` with asterisks, so it cannot tell a quote
+from prose; you must. Code identifiers keep their real names — `providerKeyTestVerdict`
+never becomes "the verdict struct".
+
+**Preserve meaning EXACTLY.** This module changes wording, never facts. If the only way to
+clear an alert is to drop a fact, a number, or a filename, keep the fact and refuse the
+alert.
+
+**MEASURE the result on the FRAGMENT, never on a line range.** Line numbers drift as soon
+as anyone edits above you, so a re-run keyed to your brief's range measures the wrong
+prose: in one measured simulation it hid 2 of 4 new rules, in another it read a real
+regression as flat. Compare the node's text before against the node's text after, as two
+standalone files:
+
+```bash
+B=$(mktemp -d)
+cat > "$B/before.md" <<'VALE_EOF'
+<paste the node text EXACTLY as the brief's fenced block shows it>
+VALE_EOF
+cat > "$B/after.md" <<'VALE_EOF'
+<paste the replacement text EXACTLY as it now stands in your worktree>
+VALE_EOF
+for f in before after; do
+  vale --output=JSON "$B/$f.md" | jq -r '.[][] | [.Check, .Match] | @tsv' | sort > "$B/$f.tsv"
+  test -s "$B/$f.tsv" || echo "CONTROL FAILED for $f.md: 0 rows. Prove vale linted it before reporting a zero."
+done
+echo "vale $(wc -l < "$B/before.tsv") -> $(wc -l < "$B/after.tsv")"
+echo "new rules: $(comm -13 <(cut -f1 "$B/before.tsv" | sort -u) <(cut -f1 "$B/after.tsv" | sort -u) | paste -sd, -)"
+```
+
+Four rules that recipe rests on:
+  1. Both files MUST end in `.md`, and NEVER pass `--glob` with an explicit file path.
+     `--glob` is a directory-walk filter: on a path it does not match, vale prints `{}`
+     and exits 0. Measured on identical bytes — `--glob='*.md'` plus a `.txt` name = 0
+     alerts, no glob plus `.txt` = 110, no glob plus `.md` = 68.
+  2. A zero is a CONTROL FAILURE until you prove otherwise. Report the control failure,
+     never the zero.
+  3. Compare fragment to fragment only. Never compare an after-fragment against a
+     whole-file count: window rules fire differently out of context (measured, one node
+     scored 21 as a fragment and 20 inside the whole-file run).
+  4. Report the RULE-NAME diff, not the counts alone. A count stays flat while one slop
+     pattern is traded for another.
+
+(vale exits non-zero when it finds alerts, which is not an error: capture its output
+before you test the status, and never chain `&& jq` after it. Its config is global, so it
+runs from any directory with no per-repo `.vale.ini`.)
+
+**Report two lists, never a total.** One list of the alerts you ACTED ON (rule + phrase +
+what was wrong with the sentence beyond the alert), one of the alerts you REFUSED (rule +
+count). A lower total is NOT the goal, and a run that clears every alert is a failure
+signal rather than a success. Name any rule that shows up in the after run and not in the
+before run, and put the literal `vale N->M` pair in the verdict reason so the number is
+checkable.
+
+Cite the vale rule name and the offending phrase for every verdict this module produces. A
+`script:line` citation has nothing to point at for a wording change.
+
+Verdicts this module adds: **deslop** (rewrote the prose, meaning unchanged, rule + phrase
+named), **slop_refused** (the alert is wrong for this doc — name the rule and why the
+house standard beats it). Write `slop_refused` with an underscore: the verdict parser stops
+at a hyphen."""
+
+
+MODULES = {"trim": TRIM, "progressive-disclosure": PROGRESSIVE_DISCLOSURE, "deslop": DESLOP}
 
 
 def normalize(modules_arg):
@@ -121,4 +220,7 @@ def verdict_options_text(modules):
         lines.append("- **delete** — fully redundant or superseded; nothing of value remains.")
     if "progressive-disclosure" in modules:
         lines.append("- **progressive-disclosure** — the rule governs a situation the tool PRODUCES or REPORTS (an invocation, a failure, a status), the tool does NOT already disclose it at that output, and it belongs there so one run gives the situation AND the rule. Write a proposal naming the output location + the text to ADD; do NOT edit the tool script. Trim the doc's copy to a pointer that names the command + situation — never 'see the header'.")
+    if "deslop" in modules:
+        lines.append("- **deslop** — a vale alert inside your line range flagged prose that reads as machine-written, the sentence was wrong beyond the alert itself, and you rewrote it to the house standard with every fact intact. Name the vale rule, the phrase you changed, and the fragment-identity `vale N->M` pair.")
+        lines.append("- **slop_refused** — the alert is wrong for this doc: it fires on the house voice (one of the presumed-refused families), or obeying it would reword a named term, paraphrase quoted material or a code identifier, or drop a fact. Keep the text as written; name the rule you refused and why the house standard beats it. Underscore, not hyphen — the verdict parser stops at a hyphen.")
     return "\n".join(lines)
