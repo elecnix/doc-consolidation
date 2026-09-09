@@ -6,11 +6,14 @@ Nodes: one per section (heading + body), with oversized sections chunked into
 consecutive chunk nodes. Edges: heading hierarchy (child depends on parent), chunk
 order, and cross-references (a node that names another node's heading depends on it).
 
-Tasks: per-node verification tasks assigned by content heuristics:
-  verify-accuracy        every node
-  verify-redundancy      every node
+Tasks: per-node verification tasks assigned by the selected modules, then by content
+heuristics. The module gate comes first: a deslop-only run must never hand a worker a
+trim task, whose text orders it to shrink the paragraph and propose deletion.
+  verify-accuracy        every node, under trim / progressive-disclosure
+  verify-redundancy      every node, under trim / progressive-disclosure
+  deslop-prose           every node, under deslop
   verify-discoverability nodes that invoke the tool (`<tool> <verb>` / `<tool> note <topic>`)
-  verify-consistency     nodes with code blocks or tool names
+  verify-consistency     nodes with code blocks or tool names, when a tool exists
   verify-currency        nodes with dates / operator rulings
 
 All paths derive from --skill (see common.py): the DB lives at
@@ -95,6 +98,22 @@ def make_catalog(tool_name):
                 "normal usage of the tool? If yes, the paragraph is discoverable and should "
                 "shrink to a pointer."
             ).format(disp=disp, cmd=cmd),
+        },
+        "deslop-prose": {
+            "title": "Reword the prose vale flagged as machine-written",
+            "description": (
+                "Answer every vale alert your brief lists for this paragraph's lines, and "
+                "no others. An alert is a signal, not an order: act on one only where the "
+                "sentence is wrong beyond the alert (it hides the main point, buries two "
+                "ideas, goes passive), and refuse it where the phrasing is the house voice "
+                "or a named term. Facts, numbers, filenames, quoted material, and code "
+                "identifiers stay exactly as they are — this task changes wording only, "
+                "and the paragraph's word count is not expected to move. How to check: "
+                "measure the FRAGMENT, not the line range. Copy the paragraph's before "
+                "text and its after text into two `.md` files, run vale on each (the "
+                "recipe is in the deslop policy below), and report the rule-name diff plus "
+                "the `vale N->M` pair. Verdict options: keep / deslop / slop_refused."
+            ),
         },
         "verify-consistency": {
             "title": "Verify the paragraph agrees with the script",
@@ -276,18 +295,27 @@ def build_edges(nodes):
 
 # --------------------------------------------------------------------------- task assignment
 
-def assign_tasks(nodes, fm, tool_name):
-    """Return list of task dicts: id, node_id, kind, title, description."""
+def assign_tasks(nodes, fm, tool_name, modules):
+    """Return list of task dicts: id, node_id, kind, title, description.
+
+    The task kinds are gated on the selected modules. A trim task tells the worker to
+    shrink the paragraph and propose deletion, so a deslop-only run (which changes
+    wording and never facts) must not be handed one.
+    """
     tasks = []
     seq = 0
     catalog = make_catalog(tool_name)
     all_nodes = [{"id": 0, "heading": "frontmatter", "content": fm.get("description", "")}] + nodes
     for n in all_nodes:
         content = n["content"]
-        kinds = ["verify-accuracy", "verify-redundancy"]
+        kinds = []
+        if "trim" in modules or "progressive-disclosure" in modules:
+            kinds += ["verify-accuracy", "verify-redundancy"]
+        if "deslop" in modules:
+            kinds.append("deslop-prose")
         if tool_name and re.search(r"\b%s (note|[a-z][a-z-]+)\b" % re.escape(tool_name), content):
             kinds.append("verify-discoverability")
-        if "```" in content or (tool_name and re.search(
+        if tool_name and ("```" in content or re.search(
                 r"\b(%s|note|_DIR|~/.cache)\b" % re.escape(tool_name), content)):
             kinds.append("verify-consistency")
         if re.search(r"\d{4}-\d\d-\d\d|operator ruling|REVISED|adopted", content):
@@ -530,7 +558,7 @@ def main():
     sections = build_sections(lines, body_start)
     nodes = build_nodes(sections, ctx.chunk_words)
     edges = build_edges(nodes)
-    tasks = assign_tasks(nodes, fm, ctx.tool_name)
+    tasks = assign_tasks(nodes, fm, ctx.tool_name, ctx.modules)
 
     # snapshot the pristine original for subagent diffing
     with open(ctx.orig_path, "w", encoding="utf-8") as f:
