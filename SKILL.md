@@ -2,7 +2,7 @@
 name: doc-consolidation
 description: Shrink an oversized skill or doc file by splitting it into a DAG of paragraph nodes, verifying each via a fresh-context subagent, and trimming anything the tool already teaches — with per-paragraph commit tracking in sqlite. Use when a skill file has grown unmanageably large and you want to shrink it systematically while moving its rules into the tool's help/notes/output.
 license: Proprietary. All rights reserved.
-compatibility: Requires python3, git, and a pi/Claude-Code harness with fresh-context subagent support.
+compatibility: Requires python3, git, and a pi/Claude-Code harness with fresh-context subagent support. The deslop module also needs vale plus the ai-tells packages (install command under "De-slopping").
 metadata:
   author: elecnix
   version: "1.0"
@@ -22,6 +22,9 @@ want a systematic, tracked shrink rather than a hand edit. Use it when you want 
 rules that belong **in** the tool (help text, notes, behavior), not in prose. Use it when you
 want to **close the loop** — surface those rules, land them in the tool's output, and shrink
 the doc to point at them (see "The full loop").
+
+A doc can be the right size and still read as machine-written. `--modules deslop` has that
+opposite trigger, and it rewords rather than shrinks.
 
 ## The full loop (don't stop at proposals)
 
@@ -108,7 +111,8 @@ Each of steps 1-4 is covered in detail in [the reference](references/REFERENCE.m
 ## Prompt modules
 
 The prompt is assembled from composable modules, selected with `--modules` on
-`split-skill-dag.py` and `drive-nodes.py` (default `trim,progressive-disclosure` = all):
+`split-skill-dag.py` and `drive-nodes.py` (default `trim,progressive-disclosure`; `deslop`
+is opt-in):
 
 - **trim** — trim text verbatim-restated in a tool's header/`--help`/code-comment to a
   one-line pointer; keep decision rules even if partially discoverable.
@@ -117,11 +121,16 @@ The prompt is assembled from composable modules, selected with `--modules` on
   `--help` for invocation rules, the failure output for failure-mode rules, the status output for
   status rules — so one run gives the caller the situation AND the rule. If the tool does not
   already print it there, write a proposal (output location + text to add) without editing the script.
+- **deslop** — rewrite prose that a vale `ai-tells` alert flags as machine-written, bounded
+  to the node's own line range. Judge each alert yourself, and let the doc repo's own
+  writing standard settle any conflict. Verdicts: `deslop`, `slop_refused`. Opt-in, and it
+  needs vale installed (see "De-slopping").
 
-A run with **all modules** (the default) does both in one pass. A run with **only
+A run with `trim,progressive-disclosure` (the default) does both in one pass. A run with **only
 `--modules progressive-disclosure`** skips trimming and only surfaces embeddable rules — useful on
 a doc already trimmed in an earlier pass. The base checks (accuracy, consistency,
-currency, `script:line` citations, keep-if-cross-script-orchestration) always apply.
+currency) always apply. The `script:line` citation demand is added only when the doc has a
+tool script to cite, and keep-if-cross-script-orchestration now lives in the trim module.
 
 The selected modules are recorded in the DB meta table, so `drive-nodes.py` reads them
 back without a flag; pass `--modules` to `drive-nodes.py` to override for one run.
@@ -131,6 +140,95 @@ The proposals accumulate in `proposals/`. A separate tool-change PR implements t
 a code change with its own gates, not a docs-only fast-path. On the PRI-2201 run the
 progressive-disclosure module surfaced 23 proposals across 11 nodes where a trim-only prompt had
 surfaced 0.
+
+## De-slopping (`--modules deslop`)
+
+`--modules deslop` fixes the wording and leaves the facts alone. Each node's brief carries
+the vale `ai-tells` alerts that fall inside that node's line range, and the worker returns
+prose a human would have written. Combine it as `--modules trim,deslop` to trim and reword
+in the same pass.
+
+It needs two things the other modules do not: vale, and a named writing standard.
+
+```bash
+# one-time setup, since vale is not part of the base requirements
+brew install vale
+mkdir -p ~/Library/Application\ Support/vale
+cat > ~/Library/Application\ Support/vale/.vale.ini <<'INI'
+StylesPath = styles
+MinAlertLevel = suggestion
+
+Packages = https://github.com/tbhb/vale-ai-tells/releases/download/v1.34.0/ai-tells.zip, \
+  https://github.com/tbhb/vale-ai-tells/releases/download/v1.34.0/ai-tells-experimental.zip
+
+[*.{md,mdx,txt}]
+BasedOnStyles = ai-tells, ai-tells-experimental
+INI
+vale sync
+```
+
+That config is global, so vale runs from any directory with no per-repo `.vale.ini`. The
+split runs it for you; run it by hand only to look:
+
+```bash
+vale --output=JSON PATH/TO/SKILL.md            # one file: never pass --glob with a path
+vale --glob='*.md' --output=JSON PATH/TO/DIR   # a directory walk: --glob filters that walk
+```
+
+`--glob` is a directory-walk filter. Pass it alongside an explicit file path and it filters
+that path out: vale prints `{}` and exits 0 — the same output as a clean file. Both files in a
+comparison must end in `.md`; the same bytes measured 0, 68, or 110 alerts across the
+filename and flag combinations. Vale also exits non-zero when it finds alerts, which is not
+an error, so capture the output before you test the status.
+
+The module's rules:
+
+- **Answer each alert, do not obey it.** An `EmDashUsage` alert points at one em dash.
+  Often that dash does read as machine-written. Where it carries the doc's own bullet
+  format, it does not, and you refuse the alert. Judge each alert against the sentence in
+  front of you, and aim at prose a human would have written. A quiet vale run follows from
+  that.
+- **Refuse these rule families by default** — they fire on the house voice, not on machine
+  writing: `EmDashUsage`, `SemicolonUsage`, `NounString`, `BareHolds`, `Figurative*`,
+  `AnthropomorphicCognition`, `SentenceStartRepetition`. On this repo 43 of 114 alerts are
+  `EmDashUsage`; on PrizmalSwitch's `AGENTS.md` it is 188 of ~380. Without a standing
+  default, a dozen cheap workers each re-decide the most frequent rule and the file ends up
+  half-repunctuated. One aggregate refusal line covers the whole set.
+- **The doc repo's own writing standard comes first.** `--style-doc PATH` names it, and the
+  split falls back to the doc repo's `AGENTS.md` / `CLAUDE.md`. With neither, the split
+  refuses to run this module; `--allow-no-style-doc` overrides that, and every brief then
+  tells its worker to refuse each punctuation, phrasing and naming alert rather than guess.
+  A named term is never reworded to satisfy a rule — `NounString` on `the switch key owner
+  id` is asking you to destroy the grep.
+- **Never rewrite quoted material.** Error strings, log lines, command output, provider
+  responses, and anything inside a code fence keep their exact wording, because a
+  paraphrase destroys their evidential value. Vale skips fences and masks inline `code`
+  with asterisks, so it cannot tell a quote from prose, and the worker must. Code
+  identifiers keep their real names.
+- **Measure the fragment, not the line range.** Line numbers drift as soon as anyone edits
+  above the node, so a re-run keyed to the brief's range measures the wrong prose: in one
+  simulation it hid 2 of 4 new rules, in another a real regression read as flat. Copy the
+  node's before text and its after text into two `.md` files, run vale on each, and report
+  the rule-name diff. A zero is a control failure until you prove vale linted the file.
+- **Report two lists, not a total.** The alerts acted on and the alerts refused. A lower
+  count is not the goal, and a run that clears every alert is a failure signal.
+
+A deslop verdict cites the vale rule name and the offending phrase. The `script:line`
+citation renders only when the doc has a tool, and it has nothing to point at for a wording
+change.
+
+A first run also hits these:
+
+- Write `slop_refused` with an underscore. The verdict parser stops at a hyphen, so
+  `slop-refused` lands in the commit as verdict `slop`, reason `refused — ...`.
+- A chunked section's heading, everything before the first heading, and frontmatter past
+  line 4 belong to no node. The split prints how many alerts fall in those spans. Fix them
+  by hand.
+- One phrase repeated across nodes raises one alert per node, and each worker invents its
+  own replacement. Run `dedup-pass.py` afterwards when consistency matters more than
+  parallelism.
+- Pass `--no-tool` to `apply-node.py` too, not only to `split-skill-dag.py`. A `--no-tool`
+  split records an empty tool in the DB meta, so apply re-runs tool auto-detection.
 
 ## Implementing proposals (the tool-change phase)
 
@@ -179,6 +277,9 @@ When the DAG is fully drained you get:
   each verified accurate and non-redundant.
 - A **sqlite tracking DB** linking every node's task to the commit that resolved it.
 - A **`proposals/` directory** of `progressive-disclosure` rules that belong in the tool.
+- When the deslop module ran, a **reworded doc**: the facts intact, a fragment-measured
+  rule-name diff per node, and a `slop_refused` verdict naming every rule the doc repo's
+  own writing standard overrode.
 - **Auditable commits**: every trim commit carries its verdict lines (with `script:line`
   citations) in the body, so the DAG's reasoning is recoverable from `git log` alone.
 - When you run the implementation phase, a **tool PR that discloses the rules** and a
@@ -194,7 +295,7 @@ documented end-to-end (its numbers are historical; the implementation-phase refi
 | Path | Role |
 |------|------|
 | `SKILL.md` | This overview. |
-| `scripts/` | The pipeline: split, worktrees, drive, apply, status + `common.py` + `prompt_modules.py` + `dedup-pass.py` (cross-node dedup) (composable trim / progressive-disclosure prompt modules). |
+| `scripts/` | The pipeline: split, worktrees, drive, apply, status + `common.py` + `prompt_modules.py` + `dedup-pass.py` (cross-node dedup) (composable trim / progressive-disclosure / deslop prompt modules). |
 | `references/REFERENCE.md` | Full method: DAG, task catalog, subagent definition, wave model, apply flow, DB schema. |
 | `references/WORKED-EXAMPLE.md` | The orchestrate-pi-agents run with real numbers. |
 

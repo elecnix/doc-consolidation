@@ -13,10 +13,15 @@
 
 ## The task catalog
 
-Every node gets `verify-accuracy` + `verify-redundancy`. Nodes that invoke the tool
-(`<tool> <verb>` / `<tool> note <topic>`) also get `verify-discoverability`. Nodes with code
-blocks or tool names also get `verify-consistency`. Nodes with dates or operator rulings
-also get `verify-currency`.
+The selected modules gate the kinds first: `trim` / `progressive-disclosure` give every
+node `verify-accuracy` + `verify-redundancy`, and `deslop` gives every node `deslop-prose`.
+A deslop-only run must never receive a trim task, whose text orders the worker to shrink
+the paragraph and propose deletion.
+
+The content heuristics then add: nodes that invoke the tool (`<tool> <verb>` / `<tool> note
+<topic>`) get `verify-discoverability`; nodes with code blocks or tool names get
+`verify-consistency`, which needs a tool to cross-check against; nodes with dates or
+operator rulings get `verify-currency`.
 
 | Task | Title | What it checks |
 |------|-------|----------------|
@@ -25,8 +30,11 @@ also get `verify-currency`.
 | verify-discoverability | Verify the content is discoverable from the tool | Whether normal tool usage would teach the orchestrator this rule |
 | verify-consistency | Verify the paragraph agrees with the script | Names, defaults, mechanics against the script source |
 | verify-currency | Verify the paragraph is current | Dates, operator rulings, superseded references |
+| deslop-prose | Reword the prose vale flagged as machine-written | The vale `ai-tells` alerts inside the node's own line range, against the run's writing standard |
 
-**Verdicts** (one per task): `keep` / `trim-to-pointer` / `delete` / `progressive-disclosure`.
+**Verdicts** (one per task): `keep` / `trim-to-pointer` / `delete` / `progressive-disclosure`,
+plus `deslop` / `slop_refused` under the deslop module. The list is assembled per run from
+the selected modules, so a deslop-only run offers keep / deslop / slop_refused only.
 Move-to-tool proposals accumulate in a `proposals/` dir for a separate tool subagent
 (the tool change involves unit tests, which is why it is delegated).
 
