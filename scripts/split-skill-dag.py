@@ -607,10 +607,15 @@ def brief_text(ctx, n, ntasks, nodes, node_alerts=None):
     )
     modules_label = ", ".join(ctx.modules)
     policy = policy_text(ctx.modules, tool=bool(ctx.tool))
-    verdict_options = verdict_options_text(ctx.modules)
+    verdict_options = verdict_options_text(ctx.modules, tool=bool(ctx.tool))
     has_tool = bool(ctx.tool)
     deslop = "deslop" in ctx.modules
     trimming = "trim" in ctx.modules or "progressive-disclosure" in ctx.modules
+    # A deslop-only run trims nothing, so the trim lane's drift warning does not apply.
+    shift_note = ("the line numbers in this brief are from the\n"
+                  "  original file and may have shifted after earlier trims." if trimming else
+                  "the line numbers in this brief are from the\n"
+                  "  original file, and a reword above you can still move them.")
 
     # Context: every tool-facing line is dropped when there is no tool, where it used to
     # render as literal nonsense ("The tool: (no tool detected)", then "embed its rules
@@ -721,8 +726,7 @@ Heading path: {path_str}
 - Your worktree: {wt} (branch {ctx.worktree_branch(n['id'])}), created from the current
   split-branch HEAD before you started. The skill file in YOUR worktree is
   {ctx.worktree_path(n['id'])}/{ctx.skill_name} — that is the file you edit.
-- Locate your section by its heading — the line numbers in this brief are from the
-  original file and may have shifted after earlier trims.
+- Locate your section by its heading — {shift_note}
 
 ## Context you need
 {context_block}

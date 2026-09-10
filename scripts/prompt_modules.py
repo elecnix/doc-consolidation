@@ -217,9 +217,23 @@ def policy_text(modules, tool=True):
     return "\n\n".join(parts)
 
 
-def verdict_options_text(modules):
-    """Assemble the verdict-options list, led by 'keep' (always available)."""
-    lines = ["- **keep** — the paragraph is accurate, non-redundant, and needed before the tool runs (or is genuine cross-script orchestration no single script self-describes)."]
+def verdict_options_text(modules, tool=True):
+    """Assemble the verdict-options list, led by 'keep' (always available).
+
+    'keep' means something different per lane, so it is written per lane. Its trim wording
+    ("needed before the tool runs", "genuine cross-script orchestration") named a tool and
+    a trim decision on a --no-tool deslop-only run, where neither exists.
+    """
+    if "trim" in modules or "progressive-disclosure" in modules:
+        keep = ("- **keep** — the paragraph is accurate, non-redundant, and needed before the tool runs "
+                "(or is genuine cross-script orchestration no single script self-describes).") if tool else (
+               "- **keep** — the paragraph is accurate, non-redundant, and needed before a reader can act.")
+    elif "deslop" in modules:
+        keep = ("- **keep** — no vale alert falls inside your line range, so there is nothing to "
+                "answer and the paragraph stands as written. Say the range was clean.")
+    else:
+        keep = "- **keep** — the paragraph is accurate and stands as written."
+    lines = [keep]
     if "trim" in modules:
         lines.append("- **trim-to-pointer** — the trimmed text is VERBATIM restated in the tool's header / a code comment / `--help` / a note; keep one line that names the finding and points at the script. If it is only partially discoverable, keep it.")
         lines.append("- **delete** — fully redundant or superseded; nothing of value remains.")
