@@ -32,7 +32,7 @@ import sqlite3
 import sys
 
 from common import Ctx
-from prompt_modules import policy_text, normalize as normalize_modules
+from prompt_modules import DEFAULT_MODULES, policy_text, normalize as normalize_modules
 
 
 def db_conn(ctx):
@@ -72,7 +72,7 @@ def main():
 
     # Modules: an explicit --modules (not the default) overrides; otherwise read what
     # split recorded in DB meta so a drive run matches the split's module selection.
-    default_mods = "trim,progressive-disclosure"
+    default_mods = ",".join(DEFAULT_MODULES)
     if args.modules != default_mods:
         ctx.modules = normalize_modules(args.modules)
     else:

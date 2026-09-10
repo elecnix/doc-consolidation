@@ -1,6 +1,6 @@
 """prompt_modules.py — composable prompt modules for doc-consolidation subagents.
 
-The prompt is assembled from modules so a run can take all modules (the default)
+The prompt is assembled from modules so a run can take the default pair, every module,
 or a single module (e.g. only progressive-disclosure, to surface embeddable rules on a doc
 that was already trimmed in a earlier pass).
 
@@ -23,7 +23,12 @@ the spawn task). split records the selected modules in the DB meta table so
 drive-nodes reads them back without a flag.
 """
 
-ALL_MODULES = ["trim", "progressive-disclosure", "deslop"]
+DEFAULT_MODULES = ["trim", "progressive-disclosure"]
+
+# Every selectable module. `deslop` is opt-in: it needs vale and a named writing
+# standard, so an unset --modules must never turn it on. DEFAULT_MODULES, not
+# ALL_MODULES, is what a falsy --modules resolves to.
+ALL_MODULES = DEFAULT_MODULES + ["deslop"]
 
 BASE = (
     "**Always:** verify accuracy and consistency — every claim the doc makes must still\n"
@@ -185,9 +190,9 @@ MODULES = {"trim": TRIM, "progressive-disclosure": PROGRESSIVE_DISCLOSURE, "desl
 
 
 def normalize(modules_arg):
-    """Parse a comma-separated module list; default to all; preserve order, drop dups."""
+    """Parse a comma-separated module list; default to DEFAULT_MODULES; keep order, drop dups."""
     if not modules_arg:
-        return list(ALL_MODULES)
+        return list(DEFAULT_MODULES)
     parts = [m.strip() for m in modules_arg.split(",") if m.strip()]
     out = []
     for p in parts:

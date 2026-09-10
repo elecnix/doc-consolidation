@@ -180,7 +180,9 @@ class Ctx:
     def __init__(self, skill_path, db, repo_root, tool, coauthor, coauthor_email, wt_root,
                  branch_prefix, split_branch, chunk_words, modules=None, style_docs=None):
         from prompt_modules import normalize as _normalize_modules
-        self.modules = _normalize_modules(modules) if modules else list(__import__("prompt_modules").ALL_MODULES)
+        # normalize(None) is DEFAULT_MODULES, not every module: deslop stays opt-in even
+        # when the caller (apply-node on a pre-modules DB) has no module list at all.
+        self.modules = _normalize_modules(modules)
         self.style_docs = resolve_style_docs(repo_root, style_docs)
         self.skill_path = os.path.realpath(skill_path)   # resolve symlinks: /tmp -> /private/tmp
         self.skill_name = os.path.basename(self.skill_path)
@@ -258,7 +260,8 @@ class Ctx:
         parser.add_argument("--wt-root", default=os.path.expanduser("~/Source/doc-split-wt"),
                             help="root for per-node subagent worktrees (default: ~/Source/doc-split-wt)")
         parser.add_argument("--modules", default="trim,progressive-disclosure",
-                            help="comma-separated prompt modules to apply (default: trim,progressive-disclosure; "
+                            help="comma-separated prompt modules to apply (default: trim,progressive-disclosure — "
+                                 "NOT every module; "
                                  "choices: trim, progressive-disclosure, deslop — deslop is opt-in). A "
                                  "progressive-disclosure-only run surfaces embeddable rules on a doc already "
                                  "trimmed in an earlier pass; a deslop run rewords prose vale flags as "
