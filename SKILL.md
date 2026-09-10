@@ -23,8 +23,8 @@ rules that belong **in** the tool (help text, notes, behavior), not in prose. Us
 want to **close the loop** — surface those rules, land them in the tool's output, and shrink
 the doc to point at them (see "The full loop").
 
-A doc can be the right size and still read as machine-written. `--modules deslop` has that
-opposite trigger, and it rewords rather than shrinks.
+A doc can be the right size and still read as machine-written. `--modules deslop` runs on
+that case, and it rewords rather than shrinks.
 
 ## The full loop (don't stop at proposals)
 
@@ -123,20 +123,20 @@ is opt-in):
   already print it there, write a proposal (output location + text to add) without editing the script.
 - **deslop** — rewrite prose that a vale `ai-tells` alert flags as machine-written, bounded
   to the node's own line range. Judge each alert yourself, and let the doc repo's own
-  writing standard settle any conflict. Verdicts: `deslop`, `slop_refused`. Opt-in, and it
-  needs vale installed (see "De-slopping").
+  writing standard settle any conflict. Verdicts: `deslop`, `slop_refused`. See
+  "De-slopping" for the vale setup.
 
 A run with `trim,progressive-disclosure` (the default) does both in one pass. A run with **only
 `--modules progressive-disclosure`** skips trimming and only surfaces embeddable rules — useful on
 a doc already trimmed in an earlier pass. Every brief demands accuracy and consistency,
-whatever the modules. The task kinds follow the module set instead. `trim` and
+whatever the modules. The module set picks the task kinds. `trim` and
 `progressive-disclosure` give each node `verify-accuracy` + `verify-redundancy`, and
 `deslop` gives it `deslop-prose`. A deslop-only run never gets a trim task, whose text
-orders the worker to shrink the paragraph and propose deletion. Content still adds
-`verify-currency` on a date or an operator ruling. It adds `verify-consistency` on a code
-block or a tool name, but only where the doc has a tool to check against. The `script:line`
-citation demand is added only when the doc has a tool script to cite, and
-keep-if-cross-script-orchestration now lives in the trim module.
+orders the worker to shrink the paragraph and propose deletion. Dates and operator rulings
+in the node add `verify-currency`. Code blocks and tool names add `verify-consistency`, but
+only where the doc has a tool to check against. The split demands a `script:line` citation
+only when the doc has a tool script to cite, and the trim module now holds
+keep-if-cross-script-orchestration.
 
 The DB meta table records the selected modules and the style docs, so `drive-nodes.py`
 and `apply-node.py` read them back without a flag. Pass `--modules` to `drive-nodes.py` to
@@ -193,12 +193,12 @@ The module's rules:
 - **Answer each alert, do not obey it.** An `EmDashUsage` alert points at one em dash.
   Often that dash does read as machine-written. Where it carries the doc's own bullet
   format, it does not, and you refuse the alert. Judge each alert against the sentence in
-  front of you, and aim at prose a human would have written. A quiet vale run follows from
-  that.
+  front of you, and aim at prose a human would have written.
 - **Refuse these rule families by default** — they fire on the house voice, not on machine
   writing: `EmDashUsage`, `SemicolonUsage`, `NounString`, `BareHolds`, `Figurative*`,
-  `AnthropomorphicCognition`, `SentenceStartRepetition`. On this repo 43 of 114 alerts are
-  `EmDashUsage`; across PrizmalSwitch's `AGENTS.md` + `CLAUDE.md` it is 188 of ~380.
+  `AnthropomorphicCognition`, `SentenceStartRepetition`. On this repo 46 of 120 alerts are
+  `EmDashUsage`. On PrizmalSwitch's `AGENTS.md` it is 94 of 224, and `CLAUDE.md` is a
+  symlink to that same file, so counting the pair doubles one file.
   Without a standing default, a dozen cheap workers each re-decide the most frequent rule
   and the file ends up half-repunctuated. One aggregate refusal line covers the whole set.
 - **The doc repo's own writing standard comes first.** Name it with `--style-doc PATH`,
@@ -207,20 +207,20 @@ The module's rules:
   the split refuses to run this module; `--allow-no-style-doc` overrides that, and every
   brief then tells its worker to refuse each punctuation, phrasing and naming alert rather
   than guess.
-  A named term is never reworded to satisfy a rule — `NounString` on `the switch key owner
-  id` is asking you to destroy the grep.
+  Never reword a named term to satisfy a rule. Rewrite `the switch key owner id` as a
+  phrase to clear a `NounString` alert and you destroy the grep.
 - **Never rewrite quoted material.** Error strings, log lines, command output, provider
   responses, and anything inside a code fence keep their exact wording, because a
   paraphrase destroys their evidential value. Vale skips fences and masks inline `code`
   with asterisks, so it cannot tell a quote from prose, and the worker must. Code
   identifiers keep their real names.
-- **Measure the fragment, not the line range.** Line numbers drift as soon as anyone edits
+- **Measure the fragment through a temp file.** Line numbers drift as soon as anyone edits
   above the node, so a re-run keyed to the brief's range measures the wrong prose: in one
   simulation it hid 2 of 4 new rules, in another a real regression read as flat. Copy the
   node's before text and its after text into two `.md` files, run vale on each, and report
   the rule-name diff. A zero is a control failure until you prove vale linted the file.
-- **Report two lists, not a total.** The alerts acted on and the alerts refused. A lower
-  count is not the goal, and a run that clears every alert is a failure signal.
+- **Report the alerts you acted on and the alerts you refused.** A lower count is not the
+  goal, and a run that clears every alert is a failure signal.
 
 A deslop verdict cites the vale rule, the phrase the worker changed, and the literal
 `vale N->M` pair from its fragment measurement. The `script:line` citation renders only
