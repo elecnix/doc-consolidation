@@ -389,7 +389,7 @@ def write_db(ctx, fm, nodes, edges, tasks):
         commit = subprocess.run(
             ["git", "-C", ctx.repo_root, "rev-parse", "HEAD"],
             capture_output=True, text=True).stdout.strip()
-    cur.executemany("INSERT INTO meta VALUES (?,?)", [
+    meta_rows = [
         ("source", ctx.skill_path),
         ("source_commit", commit),
         ("split_at", time.strftime("%Y-%m-%d %H:%M:%S")),
@@ -402,8 +402,11 @@ def write_db(ctx, fm, nodes, edges, tasks):
         ("wt_dir", ctx.wt_dir),
         ("branch_prefix", ctx.branch_prefix),
         ("modules", ",".join(ctx.modules)),
-        ("style_docs", ",".join(ctx.style_docs)),
-    ])
+    ]
+    # style_docs belongs to the deslop module alone; a trim-only DB records no row.
+    if "deslop" in ctx.modules:
+        meta_rows.append(("style_docs", ",".join(ctx.style_docs)))
+    cur.executemany("INSERT INTO meta VALUES (?,?)", meta_rows)
     # frontmatter node (id 0)
     cur.execute(
         "INSERT INTO nodes (id, kind, heading, level, chunk, total_chunks, start_line, end_line, word_count, content) "

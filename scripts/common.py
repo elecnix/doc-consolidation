@@ -183,7 +183,10 @@ class Ctx:
         # normalize(None) is DEFAULT_MODULES, not every module: deslop stays opt-in even
         # when the caller (apply-node on a pre-modules DB) has no module list at all.
         self.modules = _normalize_modules(modules)
-        self.style_docs = resolve_style_docs(repo_root, style_docs)
+        # Only the deslop module reads a writing standard, so only a deslop run resolves
+        # one. Resolving on every run made a bad --style-doc abort a --modules trim split
+        # and stamped a style_docs meta row on DBs that have no use for it.
+        self.style_docs = resolve_style_docs(repo_root, style_docs) if "deslop" in self.modules else []
         self.skill_path = os.path.realpath(skill_path)   # resolve symlinks: /tmp -> /private/tmp
         self.skill_name = os.path.basename(self.skill_path)
         self.slug = doc_slug(self.skill_path)
