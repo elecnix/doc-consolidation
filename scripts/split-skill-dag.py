@@ -38,7 +38,8 @@ import subprocess
 import sys
 import time
 
-from common import Ctx
+from common import Ctx, resolve_style_docs
+from prompt_modules import DEFAULT_MODULES, normalize as normalize_modules
 from prompt_modules import policy_text, verdict_options_text
 
 # --------------------------------------------------------------------------- task catalog
@@ -725,6 +726,30 @@ def tool_name_for(ctx):
 
 # --------------------------------------------------------------------------- main
 
+def apply_db_meta(ctx, args):
+    """Re-point ctx at the module set and style docs the DB was split with.
+
+    --briefs-only regenerates from the CLI, and the task kinds now depend on the module
+    set, so a regeneration under a different module set drops tasks the DB still holds
+    pending: a `--modules trim,progressive-disclosure,deslop` DB regenerated with a bare
+    --briefs-only lost every deslop-prose task from its brief and renumbered the rest.
+    drive-nodes.py already reads the module set back this way. An explicit --modules or
+    --style-doc still wins; a missing DB or meta table leaves the CLI values alone.
+    """
+    if not os.path.exists(ctx.db):
+        return
+    try:
+        conn = sqlite3.connect(ctx.db)
+        meta = dict(conn.execute("SELECT key, value FROM meta").fetchall())
+        conn.close()
+    except sqlite3.Error:
+        return
+    if args.modules == ",".join(DEFAULT_MODULES) and meta.get("modules"):
+        ctx.modules = normalize_modules(meta["modules"])
+    if "deslop" in ctx.modules and not args.style_doc:
+        ctx.style_docs = resolve_style_docs(ctx.repo_root, meta.get("style_docs") or None)
+
+
 def main():
     ap = argparse.ArgumentParser(description="Split a skill markdown file into a DAG of paragraph nodes in sqlite.")
     Ctx.add_args(ap)
@@ -733,12 +758,17 @@ def main():
                     help="split with --modules deslop even though no writing standard was found; "
                          "every brief then tells its worker to refuse every punctuation, phrasing "
                          "and naming alert")
-    ap.add_argument("--briefs-only", action="store_true", help="regenerate briefs from the current skill without touching the DB")
+    ap.add_argument("--briefs-only", action="store_true",
+                    help="regenerate briefs from the current skill without touching the DB; the "
+                         "module set and style docs come from the DB meta, so the briefs match "
+                         "the tasks the DB actually holds (an explicit --modules still wins)")
     ap.add_argument("--next", type=int, default=0, help="print the next N schedulable nodes and exit")
     args = ap.parse_args()
     ctx = Ctx.from_args(args)
     ctx.force = args.force
     ctx.ensure_dirs()
+    if args.briefs_only:
+        apply_db_meta(ctx, args)
 
     # A reword with no named writing standard has vale's alert list as its only authority,
     # and 38-49% of the alerts on this corpus are EmDashUsage. That run is a punctuation
@@ -763,7 +793,8 @@ def main():
 
     if args.briefs_only:
         n_briefs = write_briefs(ctx, nodes, tasks, fm)
-        print("briefs regenerated: %d -> %s" % (n_briefs, ctx.briefs_dir))
+        print("briefs regenerated: %d (modules: %s) -> %s"
+              % (n_briefs, ", ".join(ctx.modules), ctx.briefs_dir))
         return
 
     write_db(ctx, fm, nodes, edges, tasks)
