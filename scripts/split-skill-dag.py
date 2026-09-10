@@ -14,7 +14,7 @@ trim task, whose text orders it to shrink the paragraph and propose deletion.
   verify-redundancy      every node, under trim / progressive-disclosure
   deslop-prose           every node, under deslop
   verify-discoverability nodes that invoke the tool (`<tool> <verb>` / `<tool> note <topic>`)
-  verify-consistency     nodes with code blocks or tool names, when a tool exists
+  verify-consistency     nodes with code blocks; also on a tool name when a tool exists
   verify-currency        nodes with dates / operator rulings
 
 All paths derive from --skill (see common.py): the DB lives at
@@ -119,7 +119,8 @@ def make_catalog(tool_name):
             ),
         },
         "verify-consistency": {
-            "title": "Verify the paragraph agrees with the script",
+            "title": "Verify the paragraph agrees with the script" if tool_name else
+                     "Verify the paragraph agrees with the code it describes",
             "description": (
                 "Cross-check names, defaults, and mechanics against the tool script: command "
                 "names, flags, env vars, file paths, defaults, exit codes. The doc and the "
@@ -127,6 +128,15 @@ def make_catalog(tool_name):
                 "paragraph uses; run the tool's self-check where one exists. Fix any drift in "
                 "the paragraph. Do not edit the tool script — if the script is wrong, write "
                 "a progressive-disclosure proposal."
+            ) if tool_name else (
+                "Cross-check every command name, flag, env var, file path, default, and exit "
+                "code this paragraph states against the file that defines it. This doc has no "
+                "single tool script, so the check runs against whatever the paragraph names: "
+                "grep the repo for each name, open the file it lives in, and compare. Also "
+                "check the paragraph against the rest of this doc — the two must not "
+                "contradict each other. Fix any drift in the paragraph. Never edit the code "
+                "the paragraph describes; if the code is what is wrong, say so in the verdict "
+                "and leave it."
             ),
         },
         "verify-currency": {
@@ -346,7 +356,10 @@ def assign_tasks(nodes, fm_node, tool_name, modules):
             kinds.append("deslop-prose")
         if tool_name and re.search(r"\b%s (note|[a-z][a-z-]+)\b" % re.escape(tool_name), content):
             kinds.append("verify-discoverability")
-        if tool_name and ("```" in content or re.search(
+        # A code block is checkable with or without a tool: the names in it still have to
+        # match the files that define them. Requiring a tool dropped the check entirely on
+        # a tool-free doc, where the task was answerable, just not by grepping "the tool".
+        if "```" in content or (tool_name and re.search(
                 r"\b(%s|note|_DIR|~/.cache)\b" % re.escape(tool_name), content)):
             kinds.append("verify-consistency")
         if re.search(r"\d{4}-\d\d-\d\d|operator ruling|REVISED|adopted", content):
