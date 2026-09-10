@@ -94,7 +94,7 @@ def main():
             print("node %d %s (%s, %dw)" % (r["id"], r["heading"], r["kind"], r["word_count"]))
         return
 
-    if args.node:
+    if args.node is not None:      # node 0 is a real node id; `if args.node` swallowed it
         ids = [args.node]
     elif args.nodes:
         ids = [r["id"] for r in schedulable(conn, args.nodes)]
