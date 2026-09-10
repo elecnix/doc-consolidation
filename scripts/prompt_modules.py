@@ -95,31 +95,41 @@ every alert vale raised inside YOUR node's lines. Answer those and ONLY those �
 another node's paragraph to clear an alert, even where the same phrase appears there;
 another subagent owns those lines and you will collide with it.
 
-**Answer each alert, do not obey it.** An `EmDashUsage` alert points at one em dash.
-Sometimes that dash does read as machine-written. Where it carries the doc's own bullet
-format, it does not, and you refuse the alert. Judge each alert against the sentence in
-front of you, and aim at prose a human would have written.
+**Answer each alert, do not obey it.** Judge each alert against the sentence in front of
+you, and aim at prose a human would have written. Clearing the alert is not the goal, and
+neither is keeping the text: both are outcomes of that judgement.
 
-**These rule families are PRESUMED REFUSED on this corpus**, because they fire on the
-house voice, not on machine writing: `EmDashUsage`, `SemicolonUsage`, `NounString`,
-`BareHolds`, `Figurative*` (Carries/Owns/Lands/Stays/Wins/Surfaces),
-`AnthropomorphicCognition`, `SentenceStartRepetition`. Do not remove an em dash, a
-semicolon, or a named compound term to clear an alert. Act on one of these ONLY when the
-sentence is separately wrong (it hides the main point, buries two ideas, or goes passive),
-and say which. Record the whole presumed-refused set on ONE verdict line:
-`slop_refused: house-style (EmDashUsage x6, NounString x1)` — never one line per alert.
+**Do not treat a doc's existing habits as its house voice.** A doc that agents wrote has
+the tells of the model that wrote it, not the taste of the person who owns it. Frequency is
+not endorsement: the most common construction in an agent-authored doc is the strongest
+slop signal in it, and the fact that the surrounding paragraphs do the same thing is
+evidence FOR acting, never against it. Only the style doc names the house voice. Where the
+style doc is silent, the alert stands.
 
-**A named term is never reworded to satisfy a vale rule.** `NounString` on a named term
-(`the switch key owner id`, `the provider key test verdict`) is refused by definition: the
-noun stack IS the name, and "rewrite the stack as a phrase" destroys the grep. Same for
-`BareHolds` on `the config store holds ...`, and for the `Figurative*` rules on a verb the
-doc has already established.
+**These rule families are PRESUMED ACTED ON**, because they are the tells of machine
+writing rather than anyone's style: `EmDashUsage`, `SemicolonUsage`, `ColonUsage`,
+`Figurative*` (Carries/Owns/Lands/Stays/Wins/Surfaces/Fires/Clears),
+`AnthropomorphicCognition`, `SentenceStartRepetition`, `ContrastiveFormulas`,
+`CataphoricForecasting`, `PassiveVoice`, `VerbTricolon`. Split an em-dash splice into two
+sentences. Name the actor instead of going passive. Refuse one of these ONLY where the
+construction is load-bearing and you can say what it carries — a dash inside quoted
+material, a colon introducing a code block, a figurative verb the style doc itself
+mandates. Name the reason; "the rest of the doc does it too" is not one.
+
+**A named term is never reworded to satisfy a vale rule.** This is the ONE standing
+refusal, and its reason is grep, not taste. `NounString` on a named term (`the switch key
+owner id`, `the provider key test verdict`) is refused by definition: the noun stack IS the
+name, and "rewrite the stack as a phrase" breaks every search for it. Same for `BareHolds`
+where the subject is a named thing (`the config store holds ...`). Record these together:
+`slop_refused: named terms (NounString x2, BareHolds x1)`. That aggregate line is for named
+terms only — every other refusal names its own sentence and what the construction carries.
 
 **The doc repo's own writing standard comes first.** Your brief's "Writing standard"
 section names the style doc for this run. Open it and hold its rules while you edit: main
 point first, one idea per sentence, short words, active voice, cut filler, name things in
-the doc's own vocabulary. If your brief names NO style doc, refuse EVERY punctuation,
-phrasing, and naming alert and report them unacted — do not guess the house voice.
+the doc's own vocabulary. If your brief names NO style doc, still act on the presumed-acted
+families above and refuse only the named terms. Do not invent a house voice from the doc's
+own habits.
 
 **NEVER rewrite quoted material:** error strings, log lines, command output, provider
 responses, and anything inside a code fence. Paraphrasing destroys its evidential value.
@@ -241,5 +251,5 @@ def verdict_options_text(modules, tool=True):
         lines.append("- **progressive-disclosure** — the rule governs a situation the tool PRODUCES or REPORTS (an invocation, a failure, a status), the tool does NOT already disclose it at that output, and it belongs there so one run gives the situation AND the rule. Write a proposal naming the output location + the text to ADD; do NOT edit the tool script. Trim the doc's copy to a pointer that names the command + situation — never 'see the header'.")
     if "deslop" in modules:
         lines.append("- **deslop** — a vale alert inside your line range flagged prose that reads as machine-written, the sentence was wrong beyond the alert itself, and you rewrote it to the house standard with every fact intact. Name the vale rule, the phrase you changed, and the fragment-identity `vale N->M` pair.")
-        lines.append("- **slop_refused** — the alert is wrong for this doc: it fires on the house voice (one of the presumed-refused families), or obeying it would reword a named term, paraphrase quoted material or a code identifier, or drop a fact. Keep the text as written; name the rule you refused and why the house standard beats it. Underscore, not hyphen — the verdict parser stops at a hyphen.")
+        lines.append("- **slop_refused** — obeying the alert would reword a named term (the standing refusal, because it breaks the grep), paraphrase quoted material or a code identifier, drop a fact, or destroy something the construction carries that you can name. Keep the text as written and say what it carries. A doc's own frequent habits are NOT a reason: an agent-authored doc's commonest construction is its strongest tell. Underscore, not hyphen — the verdict parser stops at a hyphen.")
     return "\n".join(lines)

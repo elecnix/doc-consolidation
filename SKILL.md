@@ -191,17 +191,23 @@ an error, so capture the output before you test the status.
 
 The module's rules:
 
-- **Answer each alert, do not obey it.** An `EmDashUsage` alert points at one em dash.
-  Often that dash does read as machine-written. Where it carries the doc's own bullet
-  format, it does not, and you refuse the alert. Judge each alert against the sentence in
-  front of you, and aim at prose a human would have written.
-- **Refuse these rule families by default** — they fire on the house voice, not on machine
-  writing: `EmDashUsage`, `SemicolonUsage`, `NounString`, `BareHolds`, `Figurative*`,
-  `AnthropomorphicCognition`, `SentenceStartRepetition`. On this repo 46 of 120 alerts are
-  `EmDashUsage`. On PrizmalSwitch's `AGENTS.md` it is 94 of 224, and `CLAUDE.md` is a
-  symlink to that same file, so counting the pair doubles one file.
-  Without a standing default, a dozen cheap workers each re-decide the most frequent rule
-  and the file ends up half-repunctuated. One aggregate refusal line covers the whole set.
+- **Answer each alert, do not obey it.** Judge each alert against the sentence in front of
+  you, and aim at prose a human would have written. Clearing the alert is not the goal, and
+  neither is keeping the text.
+- **A doc's own habits are not its house voice.** A doc that agents wrote carries the tells
+  of the model that wrote it. Frequency is not endorsement: the commonest construction in an
+  agent-authored doc is the strongest slop signal in it, so "the rest of the doc does this"
+  argues FOR acting. Only the style doc names the house voice.
+- **Act on these rule families by default** — they are machine-writing tells, not anyone's
+  style: `EmDashUsage`, `SemicolonUsage`, `ColonUsage`, `Figurative*`,
+  `AnthropomorphicCognition`, `SentenceStartRepetition`, `ContrastiveFormulas`,
+  `CataphoricForecasting`, `PassiveVoice`, `VerbTricolon`. On this repo 46 of 120 alerts are
+  `EmDashUsage`; on PrizmalSwitch's `AGENTS.md` it is 94 of 224, and `CLAUDE.md` is a symlink
+  to that same file, so counting the pair doubles one file. Refuse one only where you can say
+  what the construction carries.
+- **One standing refusal: a named term.** The reason is grep, not taste. `NounString` on
+  `the switch key owner id` asks you to break every search for the name. Same for `BareHolds`
+  where the subject is a named thing. These go on one aggregate line.
 - **The doc repo's own writing standard comes first.** Name it with `--style-doc PATH`,
   once per standard, or let the split fall back to the doc repo's `AGENTS.md` / `CLAUDE.md`,
   deduped by realpath because `CLAUDE.md` is usually a symlink to `AGENTS.md`. With neither,
