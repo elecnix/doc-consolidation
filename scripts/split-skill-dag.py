@@ -3,7 +3,8 @@
 split-skill-dag.py — split a skill markdown file into a DAG of paragraph nodes in sqlite.
 
 Nodes: one per section (heading + body), with oversized sections chunked into
-consecutive chunk nodes. Edges: heading hierarchy (child depends on parent), chunk
+consecutive chunk nodes, plus node 0 for the YAML frontmatter when the doc has any.
+The node ranges are a partition: every vale alert lands in exactly one node. Edges: heading hierarchy (child depends on parent), chunk
 order, and cross-references (a node that names another node's heading depends on it).
 
 Tasks: per-node verification tasks assigned by the selected modules, then by content
@@ -146,7 +147,14 @@ def make_catalog(tool_name):
 # --------------------------------------------------------------------------- parsing
 
 def parse_skill(path):
-    """Return (frontmatter dict, lines list, body_start_line_index)."""
+    """Return (frontmatter dict, lines list, body_start_line_index).
+
+    body_start is 0 when the doc opens with no YAML fence, and 0 again when it opens with
+    one that is never closed -- an unclosed fence is not frontmatter, and treating it as
+    one swallowed the whole file. Otherwise body_start is the 0-based index of the first
+    body line, which is also the 1-based line number of the CLOSING fence: the frontmatter
+    node's end_line.
+    """
     with open(path, encoding="utf-8") as f:
         lines = f.read().split("\n")
     fm = {}
@@ -158,7 +166,10 @@ def parse_skill(path):
                 k, v = lines[j].split(":", 1)
                 fm[k.strip()] = v.strip()
             j += 1
-        body_start = j + 1
+        if j < len(lines):          # closing fence found
+            body_start = j + 1
+        else:
+            fm = {}                 # unclosed fence: the doc has no frontmatter
     return fm, lines, body_start
 
 
@@ -257,6 +268,24 @@ def build_nodes(sections, chunk_words):
     return nodes
 
 
+def frontmatter_node(fm, fm_end):
+    """Node 0, or None when the doc opens with no YAML fence.
+
+    It used to be inserted unconditionally with a hardcoded range of 1-4. On a doc whose
+    first line is a heading that phantom range overlapped the first real nodes, so the same
+    vale alert landed in two briefs and two workers were each told they owned the line. On
+    a doc whose frontmatter runs past line 4 the remaining lines fell in no node's range.
+    Both directions are gone: the node exists only when the frontmatter does, and its
+    end_line is the closing fence.
+    """
+    if not fm_end:
+        return None
+    desc = fm.get("description", "")
+    return {"id": 0, "kind": "frontmatter", "heading": "frontmatter", "level": 0,
+            "chunk": 0, "total_chunks": 1, "start_line": 1, "end_line": fm_end,
+            "word_count": words_of([desc]), "content": desc}
+
+
 def build_edges(nodes):
     """Return list of (node_id, depends_on, kind) edges: hierarchy, chunk order, xrefs."""
     edges = []
@@ -297,7 +326,7 @@ def build_edges(nodes):
 
 # --------------------------------------------------------------------------- task assignment
 
-def assign_tasks(nodes, fm, tool_name, modules):
+def assign_tasks(nodes, fm_node, tool_name, modules):
     """Return list of task dicts: id, node_id, kind, title, description.
 
     The task kinds are gated on the selected modules. A trim task tells the worker to
@@ -307,7 +336,7 @@ def assign_tasks(nodes, fm, tool_name, modules):
     tasks = []
     seq = 0
     catalog = make_catalog(tool_name)
-    all_nodes = [{"id": 0, "heading": "frontmatter", "content": fm.get("description", "")}] + nodes
+    all_nodes = ([fm_node] if fm_node else []) + nodes
     for n in all_nodes:
         content = n["content"]
         kinds = []
@@ -375,7 +404,7 @@ CREATE INDEX idx_edges_dep ON edges(depends_on);
 """
 
 
-def write_db(ctx, fm, nodes, edges, tasks):
+def write_db(ctx, fm, fm_node, nodes, edges, tasks):
     db_path = ctx.db
     force = getattr(ctx, "force", False)
     if os.path.exists(db_path) and not force:
@@ -408,11 +437,12 @@ def write_db(ctx, fm, nodes, edges, tasks):
     if "deslop" in ctx.modules:
         meta_rows.append(("style_docs", ",".join(ctx.style_docs)))
     cur.executemany("INSERT INTO meta VALUES (?,?)", meta_rows)
-    # frontmatter node (id 0)
-    cur.execute(
-        "INSERT INTO nodes (id, kind, heading, level, chunk, total_chunks, start_line, end_line, word_count, content) "
-        "VALUES (0,'frontmatter','frontmatter',0,0,1,1,4,?,?)",
-        (words_of([fm.get("description", "")]), fm.get("description", "")))
+    # frontmatter node (id 0) -- only when the doc actually has frontmatter
+    if fm_node:
+        cur.execute(
+            "INSERT INTO nodes (id, kind, heading, level, chunk, total_chunks, start_line, end_line, word_count, content) "
+            "VALUES (:id,:kind,:heading,:level,:chunk,:total_chunks,:start_line,:end_line,:word_count,:content)",
+            fm_node)
     cur.executemany(
         "INSERT INTO nodes (id, kind, heading, level, chunk, total_chunks, start_line, end_line, word_count, content) "
         "VALUES (:id,:kind,:heading,:level,:chunk,:total_chunks,:start_line,:end_line,:word_count,:content)",
@@ -502,15 +532,12 @@ def slugify(s):
     return s[:48] or "node"
 
 
-def write_briefs(ctx, nodes, tasks, fm):
+def write_briefs(ctx, nodes, tasks, fm_node):
     os.makedirs(ctx.briefs_dir, exist_ok=True)
     by_node = {}
     for t in tasks:
         by_node.setdefault(t["node_id"], []).append(t)
-    all_nodes = [{"id": 0, "kind": "frontmatter", "heading": "frontmatter", "level": 0,
-                  "chunk": 0, "total_chunks": 1, "start_line": 1, "end_line": 4,
-                  "word_count": words_of([fm.get("description", "")]),
-                  "content": fm.get("description", "")}] + nodes
+    all_nodes = ([fm_node] if fm_node else []) + nodes
     # One vale run per doc, over the snapshot whose coordinates the node ranges were
     # computed from. Only the deslop module reads them, so nothing else pays for it.
     alerts = None
@@ -527,22 +554,32 @@ def write_briefs(ctx, nodes, tasks, fm):
 
 
 def report_vale(alerts, all_nodes, path):
-    """Print what vale measured, including the alerts that fall in no node's range.
+    """Print what vale measured, in both directions: unassigned AND double-assigned.
 
-    Three spans belong to no node -- the heading line of a chunked section, everything
-    before the first heading, and frontmatter past line 4 -- so an unreported bucket
-    would drop those alerts silently.
+    Two spans belong to no node -- the heading line of a chunked section, and everything
+    before the first heading -- so an unreported bucket would drop those alerts silently.
+    Counting distinct alerts alone was structurally unable to see the opposite failure: it
+    read a doc whose node ranges overlapped as "0 in no node's range" while two briefs
+    carried the same alert. Summing per-node assignments makes the overlap fail the
+    control, because the module's whole partition rests on one alert reaching one worker.
     """
     if alerts is None:
         print("  vale: no measurement (binary missing or no JSON) -- every brief carries a "
               "CONTROL FAILURE note instead of an alert list")
         return
     covered = set()
+    assignments = 0
     for n in all_nodes:
-        covered.update(range(n["start_line"], n["end_line"] + 1))
+        rng = range(n["start_line"], n["end_line"] + 1)
+        covered.update(rng)
+        assignments += sum(1 for a in alerts if (a.get("Line") or 0) in rng)
     assigned = sum(1 for a in alerts if (a.get("Line") or 0) in covered)
     print("  vale: %d alerts on %s (%d assigned to a node, %d in no node's range)"
           % (len(alerts), os.path.basename(path), assigned, len(alerts) - assigned))
+    if assignments != assigned:
+        print("  vale: PARTITION BROKEN -- %d assignments for %d assigned alerts. %d alert(s) "
+              "fall in more than one node's range, so two workers are each told they own the "
+              "same line." % (assignments, assigned, assignments - assigned))
     if not alerts:
         print("  vale: ZERO alerts on the whole doc -- a control failure until proved "
               "otherwise (a non-.md name, or --glob with a file path, prints {} and exits 0)")
@@ -782,23 +819,24 @@ def main():
             % (ctx.repo_root or "the doc's directory"))
 
     fm, lines, body_start = parse_skill(ctx.skill_path)
+    fm_node = frontmatter_node(fm, body_start)
     sections = build_sections(lines, body_start)
     nodes = build_nodes(sections, ctx.chunk_words)
     edges = build_edges(nodes)
-    tasks = assign_tasks(nodes, fm, ctx.tool_name, ctx.modules)
+    tasks = assign_tasks(nodes, fm_node, ctx.tool_name, ctx.modules)
 
     # snapshot the pristine original for subagent diffing
     with open(ctx.orig_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
 
     if args.briefs_only:
-        n_briefs = write_briefs(ctx, nodes, tasks, fm)
+        n_briefs = write_briefs(ctx, nodes, tasks, fm_node)
         print("briefs regenerated: %d (modules: %s) -> %s"
               % (n_briefs, ", ".join(ctx.modules), ctx.briefs_dir))
         return
 
-    write_db(ctx, fm, nodes, edges, tasks)
-    n_briefs = write_briefs(ctx, nodes, tasks, fm)
+    write_db(ctx, fm, fm_node, nodes, edges, tasks)
+    n_briefs = write_briefs(ctx, nodes, tasks, fm_node)
 
     # summary
     from collections import Counter
@@ -806,7 +844,9 @@ def main():
     n_edges = len(edges)
     n_chunks = sum(1 for n in nodes if n["kind"] == "chunk")
     print("split %s -> %s" % (ctx.skill_path, ctx.db))
-    print("  nodes: %d (%d sections, %d chunks, 1 frontmatter)" % (len(nodes), len(nodes) - n_chunks - 1, n_chunks))
+    print("  nodes: %d (%d sections, %d chunks, %d frontmatter)"
+          % (len(nodes) + (1 if fm_node else 0), len(nodes) - n_chunks, n_chunks,
+             1 if fm_node else 0))
     print("  edges: %d (%s)" % (n_edges, ", ".join("%s=%d" % (k, c) for k, c in Counter(e[2] for e in edges).items())))
     print("  tasks: %d (%s)" % (len(tasks), ", ".join("%s=%d" % (k, c) for k, c in kinds.items())))
     print("  briefs: %d -> %s" % (n_briefs, ctx.briefs_dir))
