@@ -19,8 +19,8 @@ A deslop-only run must never receive a trim task, whose text orders the worker t
 the paragraph and propose deletion.
 
 The content heuristics then add: nodes that invoke the tool (`<tool> <verb>` / `<tool> note
-<topic>`) get `verify-discoverability`; nodes with code blocks or tool names get
-`verify-consistency`, which needs a tool to cross-check against; nodes with dates or
+<topic>`) get `verify-discoverability`; nodes with code blocks get
+`verify-consistency`, and a tool name adds it only when a tool exists; nodes with dates or
 operator rulings get `verify-currency`.
 
 | Task | Title | What it checks |
@@ -28,7 +28,7 @@ operator rulings get `verify-currency`.
 | verify-accuracy | Verify this paragraph is still accurate | Claims against the current tool behavior, verb names, defaults, paths |
 | verify-redundancy | Verify this paragraph is redundant | Whether the tool's help/output/notes already say this |
 | verify-discoverability | Verify the content is discoverable from the tool | Whether normal tool usage would teach the orchestrator this rule |
-| verify-consistency | Verify the paragraph agrees with the script | Names, defaults, mechanics against the script source |
+| verify-consistency | Verify the paragraph agrees with the script (tool-free: "with the code it describes") | Names, defaults, mechanics against the source that defines each one |
 | verify-currency | Verify the paragraph is current | Dates, operator rulings, superseded references |
 | deslop-prose | Reword the prose vale flagged as machine-written | The vale `ai-tells` alerts inside the node's own line range, against the run's writing standard |
 

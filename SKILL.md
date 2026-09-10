@@ -133,8 +133,9 @@ whatever the modules. The module set picks the task kinds. `trim` and
 `progressive-disclosure` give each node `verify-accuracy` + `verify-redundancy`, and
 `deslop` gives it `deslop-prose`. A deslop-only run never gets a trim task, whose text
 orders the worker to shrink the paragraph and propose deletion. Dates and operator rulings
-in the node add `verify-currency`. Code blocks and tool names add `verify-consistency`, but
-only where the doc has a tool to check against. The split demands a `script:line` citation
+in the node add `verify-currency`. A code block adds `verify-consistency` either way, and a
+tool name adds it only where the doc has a tool. On a tool-free doc that task checks the
+paragraph against the file that defines each name it uses, and against the rest of the doc. The split demands a `script:line` citation
 only when the doc has a tool script to cite, and the trim module now holds
 keep-if-cross-script-orchestration.
 
@@ -230,9 +231,9 @@ A first run also hits these:
 
 - Write `slop_refused` with an underscore. The verdict parser stops at a hyphen, so
   `slop-refused` lands in the commit as verdict `slop`, reason `refused — ...`.
-- A chunked section's heading, everything before the first heading, and frontmatter past
-  line 4 belong to no node. The split prints how many alerts fall in those spans. Fix them
-  by hand.
+- A chunked section's heading and everything before the first heading belong to no node.
+  The split prints how many alerts fall in those spans. Fix them by hand. Frontmatter is a
+  node, bounded by its closing fence.
 - One phrase repeated across nodes raises one alert per node, and each worker invents its
   own replacement. Run `dedup-pass.py` afterwards when consistency matters more than
   parallelism.
