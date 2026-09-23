@@ -13,21 +13,21 @@
 
 ## The task catalog
 
-The selected modules gate the kinds first: `trim` / `progressive-disclosure` give every
+The selected modules set the kinds first: `trim` / `progressive-disclosure` give every
 node `verify-accuracy` + `verify-redundancy`, and `deslop` gives every node `deslop-prose`.
 A deslop-only run must never receive a trim task, whose text orders the worker to shrink
 the paragraph and propose deletion.
 
-The content heuristics then add: nodes that invoke the tool (`<tool> <verb>` / `<tool> note
-<topic>`) get `verify-discoverability`; nodes with code blocks get
-`verify-consistency`, and a tool name adds it only when a tool exists; nodes with dates or
+Content heuristics then add more task kinds. Nodes that invoke the tool (`<tool> <verb>` / `<tool> note
+<topic>`) get `verify-discoverability`. Nodes with code blocks get
+`verify-consistency`, and a tool name adds it only when a tool exists. Nodes with dates or
 operator rulings get `verify-currency`.
 
 | Task | Title | What it checks |
 |------|-------|----------------|
 | verify-accuracy | Verify this paragraph is still accurate | Claims against the current tool behavior, verb names, defaults, paths |
 | verify-redundancy | Verify this paragraph is redundant | Whether the tool's help/output/notes already say this |
-| verify-discoverability | Verify the content is discoverable from the tool | Whether normal tool usage would teach the orchestrator this rule |
+| verify-discoverability | Verify the content is discoverable from the tool | Whether normal tool usage would reveal the rule to the orchestrator |
 | verify-consistency | Verify the paragraph agrees with the script (tool-free: "with the code it describes") | Names, defaults, mechanics against the source that defines each one |
 | verify-currency | Verify the paragraph is current | Dates, operator rulings, superseded references |
 | deslop-prose | Reword the prose vale flagged as machine-written | The vale `ai-tells` alerts inside the node's own line range, against the run's writing standard |
@@ -36,22 +36,22 @@ operator rulings get `verify-currency`.
 plus `deslop` / `slop_refused` under the deslop module. The list is assembled per run from
 the selected modules, so a deslop-only run offers keep / deslop / slop_refused only.
 Move-to-tool proposals accumulate in a `proposals/` dir for a separate tool subagent
-(the tool change involves unit tests, which is why it is delegated).
+(the tool change involves unit tests, so it is delegated).
 
 ## The subagent definition
 
-**Agent**: `worker` (builtin), `context: "fresh"` — a worker MUST use fresh
+**Agent**: `worker` (builtin) with `context: "fresh"`. A worker MUST use fresh
 context, never `fork`. Forked context inherits the orchestrator's session, which includes
 the pipeline scripts (`apply-node.py`, `make-worktrees.py`), the sqlite DB, and the apply/
 commit flow. A forked worker can (and on a real run, did) run `apply-node.py` itself and
-commit to the shared split branch, bypassing the orchestrator's verification step — the
+commit to the shared split branch, bypassing the orchestrator's verification step. That step is the
 one safety gate the method rests on. Fresh context isolates the worker to its brief, the
 worktree, and the tool it is verifying. The recipe is **fresh context + the cheapest
-model that still cites its evidence** — `drive-nodes.py --model` defaults to
+model that still cites its evidence**: `drive-nodes.py --model` defaults to
 `deepseek-v4-flash`, which finished nodes in 1-2 minutes and produced accurate,
 line-cited verdicts on a 63K-char doc. Per-child thinking is controlled by a **model-string
-suffix**, not a `thinking:` field on the item — a bare `thinking: "low"` is silently
-ignored (the executor never reads it; the `worker` frontmatter default of `high` wins).
+suffix**, not a `thinking:` field on the item. A bare `thinking: "low"` is silently
+ignored (the executor never reads it, and the `worker` frontmatter default of `high` wins).
 `drive-nodes.py` defaults to `deepseek-v4-flash:low`: the `:low` suffix is parsed by
 `resolveEffectiveThinking()` and sets low thinking for that child only. Drop the `:low`
 suffix to restore the agent default if verdict quality drops on a harder doc.
@@ -67,32 +67,32 @@ script path, the investigation recipe, the verdict options, and the exact output
 > **trimming policy**: trim text VERBATIM restated in the tool's header, a code comment, or
 > `--help`/note output to a one-line pointer; keep every decision rule, failure-mode
 > illustration, and `never`/`always` rule even if partially discoverable. BUT for each kept
-> rule that is ABOUT a tool script's behavior, check whether the script ALREADY states it —
-> if not, write a **progressive-disclosure** proposal (rule, target script + location, proposed
-> wording, why the tool is the right home); do NOT edit the tool script. Bias toward
-> proposing progressive-disclosure for rules that govern a script's behavior but live only in prose.
-> Your worktree is `<wt path>` — edit ONLY that doc. When done, report your verdicts,
+> rule that is ABOUT a tool script's behavior, check whether the script ALREADY states it. If
+> not, write a **progressive-disclosure** proposal (rule, target script + location, proposed
+> wording, why the tool is the right home). Do NOT edit the tool script. Bias toward
+> proposing progressive-disclosure for rules that control a script's behavior but live only in prose.
+> Your worktree is `<wt path>`. Edit ONLY that doc. When done, report your verdicts,
 > one-line reasons each, and the diff path. Every verdict line MUST cite the specific
-> `script:line` you verified each claim against (e.g. `run-pr-gates.sh:388-389`) — the
+> `script:line` you verified each claim against (e.g. `run-pr-gates.sh:388-389`). The
 > orchestrator writes those lines into the commit body, and a citation is what makes the
 > trim auditable. IMPORTANT: do not read the whole tool script. Run `<tool> --help` for
 > the commands the paragraph names, compare, write your verdicts, and finish. Aim to
 > complete in under 3 minutes.
 
-The efficiency constraint ("don't read the whole script, finish in 3 min") is critical —
-without it, the first node spent 7 minutes re-reading the 920KB script in a loop. With it,
+The efficiency constraint ("don't read the whole script, finish in 3 min") is critical.
+Without it, the first node spent 7 minutes re-reading the 920KB script in a loop. With it,
 nodes finish in 1-2 minutes.
 
 ## The wave model (5 in parallel)
 
-1. `python3 scripts/make-worktrees.py --nodes 5` — create 5 git worktrees under
+1. `python3 scripts/make-worktrees.py --nodes 5` creates 5 git worktrees under
    `<wt-root>/<doc-slug>/`, each on a `split-node-<id>` branch from the doc repo's current
    HEAD. Each worktree is a full checkout so the subagent can run `<tool> help` and grep
    the script.
 2. Spawn 5 **fresh-context** subagents via `runs.all` (one per node, `context: "fresh"`,
    model from `drive-nodes.py --model`), each with its worktree path. Never use
-   `context: "fork"` for workers — see the subagent definition above.
-3. When all 5 complete, apply each: `python3 scripts/apply-node.py <id>` — applies the
+   `context: "fork"` for workers, per the subagent definition above.
+3. When all 5 complete, apply each: `python3 scripts/apply-node.py <id>`, which applies the
    diff with `git apply --3way` (handles context drift from sibling trims), runs the
    doc/tool agreement checks (fences balanced, verbs resolve, notes exist), commits the
    doc with an explicit path, and records the commit id on the node's tasks.
@@ -105,12 +105,12 @@ sibling's trim changed the context.
 
 ## The tooling
 
-All scripts live in `scripts/` and share one `--skill` flag: everything else derives from
+The scripts live in `scripts/` and share one `--skill` flag: everything else derives from
 it (see `common.py`). Point `--skill` at any markdown doc in a git repo and the pipeline
 works unchanged:
 
-- **DB + artifacts** land in `~/.cache/<doc-slug>/` (skill-dag.db, briefs/, diffs/,
-  verdicts/, proposals/, SKILL.orig.md) — a doc slug prefixes the repo dir for generic
+- **DB + artifacts** go to `~/.cache/<doc-slug>/` (skill-dag.db, briefs/, diffs/,
+  verdicts/, proposals/, SKILL.orig.md). A doc slug prefixes the repo dir for generic
   names (SKILL.md, README.md) so two skill repos never collide.
 - **Per-node worktrees** live under `<wt-root>/<doc-slug>/N%04d` (default wt-root:
   `~/Source/doc-split-wt`), branched from the doc repo's current HEAD.
@@ -122,26 +122,26 @@ works unchanged:
 - **Commit identity**: the commit trailer uses git config user.name/email of the doc
   repo; `--co-author NAME` overrides.
 - **DB meta remembers** the source doc, tool, and co-author, so the apply/drive/status
-  scripts need no flags once `split-skill-dag.py` has run — `apply-node.py <id>` just
+  scripts require only the doc path once `split-skill-dag.py` has run: `apply-node.py <id>` just
   works.
 
 | Script | Role |
 |--------|------|
-| `split-skill-dag.py` | Parse the doc → nodes + edges + tasks in sqlite; write briefs. `--force` rebuilds; `--briefs-only` regenerates briefs without touching the DB. |
+| `split-skill-dag.py` | Parse the doc → nodes + edges + tasks in sqlite. Write briefs. `--force` rebuilds. `--briefs-only` regenerates briefs without touching the DB. |
 | `apply-node.py <id>` | Apply one node's diff, commit, record commit id. `--status` / `--next N` / `--dry-run`. |
 | `drive-nodes.py` | Print the subagent spawn task (with model) per node. `--next N` / `--status` / `--model`. |
 | `make-worktrees.py` | Create / clean up per-node git worktrees. `--nodes N` / `--node N` / `--cleanup` (also drops leftover branches) / `--list`. |
 | `status.py` | One-line progress for the 2-minute monitor tick. |
 
 **The DB** (`~/.cache/<doc-slug>/skill-dag.db`): sqlite with `nodes`, `edges`, `tasks`,
-`meta` tables. Each task row carries `status`, `commit_id`, `done_at` — so you can track
+`meta` tables. Each task row has `status`, `commit_id`, `done_at`, so you can track
 which paragraph's tasks were done and which commit applied them. The `meta` table records
 the source doc path/commit, the tool path, and the co-author at split time.
 
-**The monitor**: `monitor` tool with a 2-minute poll of `status.py` — emits one line per
+**The monitor**: `monitor` tool with a 2-minute poll of `status.py`. It emits one line per
 tick: `done X/N | tasks Y/M (+Z/2m) | frontier F`. The `+Z/2m` is the throughput signal.
 
-## The apply + commit + record flow
+## The apply, commit, and record flow
 
 ```
 subagent writes:  diffs/N%04d.diff (git diff --no-prefix, empty = keep)
@@ -156,13 +156,13 @@ orchestrator:     python3 apply-node.py <id>
                   → mark node done
 ```
 
-One commit per node modification. Keep verdicts (no edit) record no commit. The commit id
+One commit per node modification. A keep verdict (no edit) skips the commit. The commit id
 is recorded on every task of the node, so the DB links each task to the commit that resolved
 it.
 
-## What stays in the doc
+## What remains in the doc
 
-Per the routing test: how to decide, how to report, what to delegate, and the failure modes
-of monitoring itself. Illustrations (BROKEN/FIXED pairs, measured incidents) stay as
-evidence. Everything else — recipes, verb tables, mechanics, help-text restatements — trims
+Per the routing test: the choosing and the reporting, plus the delegation calls and the failure
+modes of monitoring itself. Illustrations (BROKEN/FIXED pairs, measured incidents) remain as
+evidence. Everything else (recipes, verb tables, mechanics, help-text restatements) trims
 to a pointer or deletes.

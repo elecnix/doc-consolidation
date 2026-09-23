@@ -1,7 +1,7 @@
 # Worked example: orchestrate-pi-agents
 
-> This is a historical record of the first real run. "fleet" was that skill's tool —
-> substitute your own doc's tool everywhere you see it. The method is tool-agnostic.
+> This is a historical record of the first real run. "fleet" was that skill's tool.
+> Substitute your own doc's tool everywhere you see it. The method is tool-agnostic.
 
 The first real use of doc-consolidation was shrinking the
 `orchestrate-pi-agents` skill (`~/.agents/skills/orchestrate-pi-agents/SKILL.md`),
@@ -17,7 +17,7 @@ whose fleet tool (`scripts/fleet`, 920KB) carries the reasoning for every recipe
 
 ## After
 
-- **231,445 bytes / 3,415 lines / 38,482 words** — **38% bytes, 39% lines, 38% words cut**
+- **231,445 bytes / 3,415 lines / 38,482 words** (38% bytes, 39% lines, 38% words cut)
 - The trimmed file passes the real `fleet selfcheck` (80 verbs, 26 notes, fences balanced,
   all `fleet <verb>` invocations resolve, all `fleet note <topic>` topics exist).
 
@@ -29,12 +29,12 @@ whose fleet tool (`scripts/fleet`, 920KB) carries the reasoning for every recipe
 - **150 commits** on a `skill-split-dag` branch (one per node that changed the file), merged
   to `main` and pushed.
 - **149 nodes trimmed**, 67 kept as-is.
-- Task verdicts: 270 trim-to-pointer, 463 keep, 10 delete, 3 move-to-fleet.
+- Task verdicts: 270 trim-to-pointer and 463 keep, plus 10 delete and 3 move-to-fleet.
 - **3 move-to-fleet proposals** accumulated for a separate fleet-tool subagent:
   stale-green detection in `fleet prs`, a stale `doc_board` help string, and a
   worktree-before-spawn recipe.
 
-## What the subagents caught
+## Accuracy drifts the subagents caught
 
 10+ real accuracy drifts, exactly what `verify-accuracy` was for:
 
@@ -50,8 +50,9 @@ whose fleet tool (`scripts/fleet`, 920KB) carries the reasoning for every recipe
 
 ## What stayed (the decision-guidance core)
 
-The 463 `keep` verdicts are the paragraphs the tool does not teach: how to decide, how to
-report, what to delegate, the failure modes of monitoring itself, vocabulary rules (the word
+The 463 `keep` verdicts are the paragraphs the tool does not cover: how to decide and how
+to report, together with the delegation calls and the failure modes of monitoring itself,
+vocabulary rules (the word
 is "spawn"), operator rulings, and incident illustrations (BROKEN/FIXED pairs, measured
-numbers). These are what an orchestrator needs **before any tool runs** — they cannot wait
+numbers). These are what an orchestrator needs **before any tool runs**. They cannot wait
 for a verb to fire.

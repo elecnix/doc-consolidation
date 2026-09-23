@@ -1,6 +1,6 @@
 ---
 name: doc-consolidation
-description: Shrink an oversized skill or doc file by splitting it into a DAG of paragraph nodes, verifying each via a fresh-context subagent, and trimming anything the tool already teaches — with per-paragraph commit tracking in sqlite. Use when a skill file has grown unmanageably large and you want to shrink it systematically while moving its rules into the tool's help/notes/output.
+description: shrink an oversized skill or doc file by splitting it into a DAG of paragraph nodes and verifying each node with a fresh-context subagent. Whatever the tool already states gets trimmed, with per-paragraph commit tracking in sqlite. Use when a skill file has grown unmanageably large and you want to shrink it systematically while moving its rules into the tool's help/notes/output.
 license: Proprietary. All rights reserved.
 compatibility: Requires python3, git, and a pi/Claude-Code harness with fresh-context subagent support. The deslop module also needs vale plus the ai-tells packages (install command under "De-slopping").
 metadata:
@@ -17,11 +17,10 @@ verifying every paragraph and deleting or trimming whatever the tool already tea
 ## When to use this skill
 
 Use it when a skill or doc file has grown past roughly 10K words and much of it restates
-tool behavior — verb tables, help-text, mechanics, incident backstories. Use it when you
+tool behavior: verb tables, help-text, mechanics, incident backstories. Use it when you
 want a systematic, tracked shrink rather than a hand edit. Use it when you want to surface
 rules that belong **in** the tool (help text, notes, behavior), not in prose. Use it when you
-want to **close the loop** — surface those rules, land them in the tool's output, and shrink
-the doc to point at them (see "The full loop").
+want to **close the loop**: surface those rules in the tool's output and shrink the doc to point at them (see "The full loop").
 
 A doc can be the right size and still read as machine-written. `--modules deslop` runs on
 that case, and it rewords rather than shrinks.
@@ -29,42 +28,42 @@ that case, and it rewords rather than shrinks.
 ## The full loop (don't stop at proposals)
 
 Shrinking the doc is only the first movement. A rule that belongs in the tool is not done
-when the proposal is written — the loop closes in three moves:
+when the proposal is written. The loop closes in three moves:
 
 1. **Propose** (this pipeline): verify the restated paragraph, write the progressive-disclosure
    proposal, trim the doc to a one-line pointer.
-2. **Implement**: a tool-change PR edits the script to disclose the rule at the output where
+2. **Apply the tool change**: a tool-change PR edits the script to disclose the rule at the output where
    the caller reads it, and (ideally) re-trims the doc to remove the pointer's now-redundant
    copies. Drive one subagent per proposal; batch the trivial ones, delegate the hard ones
-   (see "Implementing proposals", below).
-3. **Re-verify the doc** once the tool lands: now that the rule is in the tool's output, the
-   pointer's "see the tool" becomes literally true — confirm the doc copy actually shrinks,
+   (see "Applying proposals", below).
+3. **Re-verify the doc** once the tool change is merged: now that the rule is in the tool's output, the
+   pointer's "see the tool" becomes literally true. Confirm the doc copy actually shrinks,
    or the skill grows a duplicate.
 
-The doc and the tool move together. Implementing the tool without trimming the doc (or vice
-versa) leaves one half claiming the other owns the rule, and you get a doc and a tool that
-disagree about who teaches what.
+The doc and the tool move together. If you make the tool change without trimming the doc (or
+the reverse), each half claims the other defines the rule. The result is a doc and a tool that
+disagree about which one discloses it.
 
 ## The core idea
 
 Split the doc into a **DAG of paragraph nodes**. Assign each node a list of verification
 tasks. Execute each node's tasks with **one fresh-context subagent** in its own git worktree
-(`context: "fresh"`, never `fork` — a forked worker inherits the orchestrator's scripts and
+(`context: "fresh"`, never `fork`. A forked worker inherits the orchestrator's scripts and
 once ran `apply-node.py` itself, committing to the shared branch past the verification
 gate). The subagent verifies accuracy, redundancy, and discoverability, and produces a
 diff. The orchestrator applies it (one commit per node) and records the commit id on the
 node's tasks in a local sqlite.
 
 **The shrink criterion** (from the skill's own routing test): if the orchestrator would
-discover a fact by normal use of the tool — `--help`, output, notes — the doc does not have
-to say it. Default to deletion. A paragraph stays only if (a) it is needed before any tool
-runs, or (b) it is an illustration no verb can own. This is the smaller motivation — the
-whole shape only pays off when you take it through **the full loop above**.
+discover a fact by normal use of the tool (`--help`, output, notes), the doc does not have
+to say it. Default to deletion. Keep a paragraph only if (a) the work needs it before any tool
+runs, or (b) no tool verb reproduces the illustration. This is the smaller motivation. This
+DAG only pays off when you take it through **the full loop above**.
 
 ## Quick start
 
 **First: run `--help` on every script, do not read the source.** The scripts are
-self-documenting via argparse `--help` — that output is the discoverable summary of
+self-documenting via argparse `--help`. That output is the discoverable summary of
 flags, defaults, and derived paths, and it is all you need to drive the pipeline. Reading
 the full source wastes context (the five scripts are ~40KB) and is exactly the kind of
 restate-the-tool prose this skill exists to cut. Run these first:
@@ -80,10 +79,10 @@ python3 scripts/status.py          --help
 Only read a script's source if `--help` does not answer a specific question.
 
 Every script derives its paths from `--skill` (see `common.py`): the DB and
-briefs/diffs/verdicts/proposals land in `~/.cache/<doc-slug>/`, per-node worktrees in
+briefs/diffs/verdicts/proposals go to `~/.cache/<doc-slug>/`, per-node worktrees in
 `<wt-root>/<doc-slug>/`, and the doc is committed in its own git repo. The tool script
-(the one whose help/output the doc must not restate) is auto-detected, and commit
-identity comes from the repo's git config — no flags needed beyond the doc path.
+(the one whose help/output the doc must not restate) is auto-detected. Commit
+identity comes from the repo's git config. You pass no flags beyond the doc path.
 
 ```bash
 # 1. Split the doc into a DAG + tasks, write per-node briefs
@@ -114,20 +113,20 @@ The prompt is assembled from composable modules, selected with `--modules` on
 `split-skill-dag.py` and `drive-nodes.py` (default `trim,progressive-disclosure`; `deslop`
 is opt-in):
 
-- **trim** — trim text verbatim-restated in a tool's header/`--help`/code-comment to a
-  one-line pointer; keep decision rules even if partially discoverable.
-- **progressive-disclosure** — for each kept rule about a situation a tool *produces or reports*
-  (an invocation, a failure, a status), disclose it at the output where that situation appears —
-  `--help` for invocation rules, the failure output for failure-mode rules, the status output for
-  status rules — so one run gives the caller the situation AND the rule. If the tool does not
+- **trim**: trim text verbatim-restated in a tool's header/`--help`/code-comment to a
+  one-line pointer. Keep decision rules even if partially discoverable.
+- **progressive-disclosure**: for each kept rule about a situation a tool *produces or reports*
+  (an invocation, a failure, a status), disclose it at the output where that situation appears
+  (`--help` for invocation rules, the failure output for failure-mode rules, the status output for
+  status rules), so one run gives the caller the situation AND the rule. If the tool does not
   already print it there, write a proposal (output location + text to add) without editing the script.
-- **deslop** — rewrite prose that a vale `ai-tells` alert flags as machine-written, bounded
+- **deslop**: rewrite prose that a vale `ai-tells` alert flags as machine-written, bounded
   to the node's own line range. Judge each alert yourself, and let the doc repo's own
   writing standard settle any conflict. Verdicts: `deslop`, `slop_refused`. See
   "De-slopping" for the vale setup.
 
 A run with `trim,progressive-disclosure` (the default) does both in one pass. A run with **only
-`--modules progressive-disclosure`** skips trimming and only surfaces embeddable rules — useful on
+`--modules progressive-disclosure`** skips trimming and only extracts embeddable rules, useful on
 a doc already trimmed in an earlier pass. Every brief demands accuracy and consistency,
 whatever the modules. The module set picks the task kinds. `trim` and
 `progressive-disclosure` give each node `verify-accuracy` + `verify-redundancy`, and
@@ -143,9 +142,9 @@ The DB meta table records the selected modules and the style docs, so `drive-nod
 and `apply-node.py` read them back without a flag. Pass `--modules` to `drive-nodes.py` to
 override for one run.
 
-The proposals accumulate in `proposals/`. A separate tool-change PR implements them
-(edits the tool scripts to embed the rules) and trims the doc to pointers — that is
-a code change with its own gates, not a docs-only fast-path. On the PRI-2201 run the
+The proposals accumulate in `proposals/`. A separate tool-change PR applies them
+(edits the tool scripts to embed the rules) and trims the doc to pointers. That is
+a code change with its own gates, unlike a docs-only fast path. On the PRI-2201 run the
 progressive-disclosure module surfaced 23 proposals across 11 nodes where a trim-only prompt had
 surfaced 0.
 
@@ -184,7 +183,7 @@ vale --glob='*.md' --output=JSON PATH/TO/DIR   # a directory walk: --glob filter
 ```
 
 `--glob` is a directory-walk filter. Pass it alongside an explicit file path and it filters
-that path out: vale prints `{}` and exits 0 — the same output as a clean file. Both files in a
+that path out: vale prints `{}` and exits 0, the same output as a clean file. Both files in a
 comparison must end in `.md`; the same bytes measured 0, 68, or 110 alerts across the
 filename and flag combinations. Vale also exits non-zero when it finds alerts, which is not
 an error, so capture the output before you test the status.
@@ -192,19 +191,19 @@ an error, so capture the output before you test the status.
 The module's rules:
 
 - **Answer each alert, do not obey it.** Judge each alert against the sentence in front of
-  you, and aim at prose a human would have written. Clearing the alert is not the goal, and
+  you, and aim at prose a human would have written. Removing the alert is not the goal, and
   neither is keeping the text.
-- **A doc's own habits are not its house voice.** A doc that agents wrote carries the tells
+- **A doc's own habits are not its project voice.** A doc that agents wrote shows the tells
   of the model that wrote it. Frequency is not endorsement: the commonest construction in an
   agent-authored doc is the strongest slop signal in it, so "the rest of the doc does this"
-  argues FOR acting. Only the style doc names the house voice.
-- **Act on these rule families by default** — they are machine-writing tells, not anyone's
+  argues FOR acting. Only the style doc defines the project voice.
+- **Act on these rule families by default**: they are machine-writing tells rather than anyone's
   style: `EmDashUsage`, `SemicolonUsage`, `ColonUsage`, `Figurative*`,
   `AnthropomorphicCognition`, `SentenceStartRepetition`, `ContrastiveFormulas`,
   `CataphoricForecasting`, `PassiveVoice`, `VerbTricolon`. On this repo 46 of 120 alerts are
   `EmDashUsage`; on PrizmalSwitch's `AGENTS.md` it is 94 of 224, and `CLAUDE.md` is a symlink
   to that same file, so counting the pair doubles one file. Refuse one only where you can say
-  what the construction carries.
+  what the construction contributes.
 - **One standing refusal: a named term.** The reason is grep, not taste. `NounString` on
   `the switch key owner id` asks you to break every search for the name. Same for `BareHolds`
   where the subject is a named thing. These go on one aggregate line.
@@ -227,7 +226,7 @@ The module's rules:
   node's before text and its after text into two `.md` files, run vale on each, and report
   the rule-name diff. A zero is a control failure until you prove vale linted the file.
 - **Report the alerts you acted on and the alerts you refused.** A lower count is not the
-  goal, and a run that clears every alert is a failure signal.
+  goal, and a run that removes every alert is a failure signal.
 
 A deslop verdict cites the vale rule, the phrase the worker changed, and the literal
 `vale N->M` pair from its fragment measurement. The `script:line` citation renders only
@@ -249,25 +248,25 @@ A first run also hits these:
   brief's "Vale alerts in your line range" section then carries a control-failure note
   where its alert list would have been.
 
-## Implementing proposals (the tool-change phase)
+## Applying proposals (the tool-change phase)
 
-Once the doc is drained, the `proposals/` directory is a backlog. Driving it to land is
-where most forks stall, so this phase has its own method. The two hard-won rules:
+Once the doc is drained, the `proposals/` directory is a backlog. Driving it is
+where most forks stall, so this phase has its own method, built on two hard-won rules:
 
-- **One subagent per proposal, one commit each, all on ONE branch.** Do not give a worker
-  several proposals and let it commit once — you lose the per-proposal review trail. Give
+- **Each proposal gets its own subagent and its own commit, all on ONE branch.** Do not give a worker
+  several proposals and let it commit once. You lose the per-proposal review trail. Give
   it several proposals but make it commit after *each*.
 - **Batch the trivial, delegate the hard.** A proposal that only appends a help line, a
-  note body, or a status echo is a 3-minute worker job — batch ~5 of these into one worker
+  note body, or a status echo is a 3-minute worker job. Batch ~5 of these into one worker
   run over related files. A proposal that adds logic (a new note topic + its trigger, a
   parser change, a merge-tree comparison) is a single-worker or direct job. The first time
-  you let a cheap worker chew on a hard proposal, it loops and times out — pull it back and
+  you let a cheap worker chew on a hard proposal, it loops and times out. Pull it back and
   do it yourself.
 
-**Parallel lanes, not one worktree.** All these edits touch the same script. Run workers in
+**Parallel lanes, not one worktree.** These edits touch the same script. Run workers in
 separate git worktrees (`git worktree add -b lane-N <base>`), each on a disjoint set of
 proposals, then merge the lanes back with `git merge` and resolve the few conflicts by hand
-(they overlap rarely — help blocks are far apart). This is what lets you do many proposals
+(they overlap rarely, since help blocks are far apart). This is what lets you do many proposals
 at once without clobbering.
 
 **Lean gates are the difference between finishing and timing out.** Running the tool's full
@@ -278,10 +277,10 @@ EVERY proposal" will time out at 30min on a 5-proposal batch; told "bash -n per 
 selfcheck at the end", it finishes.
 
 **Triage workers that stall.** A verification worker that loops re-reading the same file is
-not "deep in thought" — it is stuck. After ~15 turns with no commit, stop it, check the
-worktree is clean, and implement that proposal yourself. This happened repeatedly on the
-hard proposals — the fix is not a bigger hammer, it is the orchestrator taking the hard
-one back and doing it by hand.
+not "deep in thought". It is stuck. After ~15 turns with no commit, stop it, check the
+worktree is clean, and take that proposal back yourself. This happened repeatedly on the
+hard proposals. The fix is not a bigger hammer. The orchestrator takes the hard
+one back and does it by hand.
 
 **The commit must carry the proof.** The commit body should have the verdict lines (with
 `script:line`s) that motivated the change, so a future reader can audit why a line was
@@ -299,22 +298,22 @@ When the DAG is fully drained you get:
 - When the deslop module ran, a **reworded doc**: the facts intact, a fragment-measured
   rule-name diff per node, and a `slop_refused` verdict naming every rule the doc repo's
   own writing standard overrode.
-- **Auditable commits**: every trim commit carries its verdict lines (with `script:line`
+- **Auditable commits**: every trim commit includes its verdict lines (with `script:line`
   citations) in the body, so the DAG's reasoning is recoverable from `git log` alone.
-- When you run the implementation phase, a **tool PR that discloses the rules** and a
-  **re-trimmed doc** — the loop closed (see "The full loop").
-- The decision-guidance core — "what you need before any tool runs" — kept intact.
+- When you run the tool-change phase, a **tool PR that discloses the rules** and a
+  **re-trimmed doc**. That closes the loop (see "The full loop").
+- The decision-guidance core ("what you need before any tool runs") kept intact.
 
 See [the worked example](references/WORKED-EXAMPLE.md) for the orchestrate-pi-agents run
-documented end-to-end (its numbers are historical; the implementation-phase refinements in
-"The full loop" / "Implementing proposals" landed after that run).
+documented end-to-end (its numbers are historical; the tool-change-phase refinements in
+"The full loop" / "Applying proposals" landed after that run).
 
 ## Files
 
 | Path | Role |
 |------|------|
 | `SKILL.md` | This overview. |
-| `scripts/` | The pipeline: split, worktrees, drive, apply, status + `common.py` + `prompt_modules.py` + `dedup-pass.py` (cross-node dedup) (composable trim / progressive-disclosure / deslop prompt modules). |
+| `scripts/` | The pipeline runs as split, worktrees, drive, apply, and status, plus `common.py` + `prompt_modules.py` + `dedup-pass.py` (cross-node dedup) (composable trim / progressive-disclosure / deslop prompt modules). |
 | `references/REFERENCE.md` | Full method: DAG, task catalog, subagent definition, wave model, apply flow, DB schema. |
 | `references/WORKED-EXAMPLE.md` | The orchestrate-pi-agents run with real numbers. |
 
@@ -322,10 +321,10 @@ documented end-to-end (its numbers are historical; the implementation-phase refi
 
 The per-node DAG checks duplication **inside** a node (does this paragraph
 restate the script?). It cannot see that the same rule is stated in **two
-different sections** — e.g. a golden rule repeated in the detailed step, or a
-constraint stated in both the intro and a later section. `dedup-pass.py` runs a
-**whole-doc** pass that spots rules stated in more than one node, keeps the
-canonical statement in one section, and trims the duplicates to one-line
+different sections** (a golden rule repeated in the detailed step, or a
+constraint stated in both the intro and a later section). `dedup-pass.py` runs a
+**whole-doc** pass that spots rules stated in more than one node. It keeps the
+canonical statement in one section and trims the duplicates to one-line
 pointers.
 
 ```bash
