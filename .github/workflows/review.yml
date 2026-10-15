@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   review:
-    runs-on: ubuntu-latest
+    runs-on: arc-runners
     steps:
       - name: Review this pull request with Cite
         uses: elecnix/cite@1c0537ba7f8df4dc5db0651f609f6b8834167150  # v0.11.2
